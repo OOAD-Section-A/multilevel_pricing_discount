@@ -1,24 +1,31 @@
 package com.pricingos.pricing.tier;
 
-import com.pricingos.common.*;
-import java.util.HashMap;
+import com.pricingos.common.CustomerTier;
+import com.pricingos.common.ICustomerTierService;
+import com.pricingos.common.IOrderService;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CustomerTierEngine implements ICustomerTierService {
     private final IOrderService orderService;
-    private final Map<String, CustomerTier> tierStore = new HashMap<>();
-    private final Map<String, Boolean> overrides = new HashMap<>();
+    private final Map<String, CustomerTier> tierStore = new ConcurrentHashMap<>();
+    private final Map<String, CustomerTier> manualOverrides = new ConcurrentHashMap<>();
 
     private static final double PLATINUM_MIN = 100000;
     private static final double GOLD_MIN = 50000;
     private static final double SILVER_MIN = 10000;
 
     public CustomerTierEngine(IOrderService orderService){
-        this.orderService = orderService;
+        this.orderService = Objects.requireNonNull(orderService, "orderService cannot be null");
     }
 
     @Override
     public CustomerTier getTier(String customerId){
+        CustomerTier overriddenTier = manualOverrides.get(customerId);
+        if (overriddenTier != null) {
+            return overriddenTier;
+        }
         return tierStore.getOrDefault(customerId,CustomerTier.STANDARD);
     }
 
@@ -29,31 +36,35 @@ public class CustomerTierEngine implements ICustomerTierService {
 
     @Override 
     public void evaluateTier(String customerId){
-        if(overrides.getOrDefault(customerId,false)){
+        if(manualOverrides.containsKey(customerId)){
             return;
         }
         
         double spend = orderService.getTotalSpendLastYear(customerId);
-        CustomerTier tier;
-
-        if(spend>=PLATINUM_MIN){
-            tier = CustomerTier.PLATINUM;
-        }
-        else if(spend>=GOLD_MIN){
-            tier = CustomerTier.GOLD;
-        }
-        else if(spend>=SILVER_MIN){
-            tier = CustomerTier.SILVER;
-        }
-        else{
-            tier = CustomerTier.STANDARD;
-        }
-        tierStore.put(customerId,tier);
+        CustomerTier evaluatedTier = resolveTier(spend);
+        tierStore.compute(customerId, (id, ignored) -> {
+            CustomerTier overriddenTier = manualOverrides.get(id);
+            return overriddenTier != null ? overriddenTier : evaluatedTier;
+        });
     }
 
     @Override
     public void overrideTier(String customerId, CustomerTier tier){
+        Objects.requireNonNull(tier, "tier cannot be null");
+        manualOverrides.put(customerId,tier);
         tierStore.put(customerId,tier);
-        overrides.put(customerId,true);
+    }
+
+    private CustomerTier resolveTier(double spend) {
+        if(spend>=PLATINUM_MIN){
+            return CustomerTier.PLATINUM;
+        }
+        if(spend>=GOLD_MIN){
+            return CustomerTier.GOLD;
+        }
+        if(spend>=SILVER_MIN){
+            return CustomerTier.SILVER;
+        }
+        return CustomerTier.STANDARD;
     }
 }

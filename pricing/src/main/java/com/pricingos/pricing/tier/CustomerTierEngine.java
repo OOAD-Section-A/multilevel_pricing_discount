@@ -7,64 +7,77 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Customer tier service implementation.
+ * Behavioral pattern: delegates tier rules to a TierEvaluationStrategy.
+ * SOLID DIP/OCP: depends on strategy abstraction and can extend rules without modifying this class.
+ */
 public class CustomerTierEngine implements ICustomerTierService {
     private final IOrderService orderService;
+    private final TierEvaluationStrategy tierEvaluationStrategy;
     private final Map<String, CustomerTier> tierStore = new ConcurrentHashMap<>();
     private final Map<String, CustomerTier> manualOverrides = new ConcurrentHashMap<>();
 
-    private static final double PLATINUM_MIN = 100000;
-    private static final double GOLD_MIN = 50000;
-    private static final double SILVER_MIN = 10000;
+    public CustomerTierEngine(IOrderService orderService) {
+        this(orderService, new SpendBasedTierEvaluationStrategy());
+    }
 
-    public CustomerTierEngine(IOrderService orderService){
+    public CustomerTierEngine(IOrderService orderService, TierEvaluationStrategy tierEvaluationStrategy) {
         this.orderService = Objects.requireNonNull(orderService, "orderService cannot be null");
+        this.tierEvaluationStrategy = Objects.requireNonNull(tierEvaluationStrategy, "tierEvaluationStrategy cannot be null");
     }
 
     @Override
-    public CustomerTier getTier(String customerId){
-        CustomerTier overriddenTier = manualOverrides.get(customerId);
+    public CustomerTier getTier(String customerId) {
+        String normalizedCustomerId = requireCustomerId(customerId);
+        CustomerTier overriddenTier = manualOverrides.get(normalizedCustomerId);
         if (overriddenTier != null) {
             return overriddenTier;
         }
-        return tierStore.getOrDefault(customerId,CustomerTier.STANDARD);
+        return tierStore.getOrDefault(normalizedCustomerId, CustomerTier.STANDARD);
     }
 
     @Override
-    public double getDiscountRate(String customerId){
+    public double getDiscountRate(String customerId) {
         return getTier(customerId).getDiscountRate();
     }
 
-    @Override 
-    public void evaluateTier(String customerId){
-        if(manualOverrides.containsKey(customerId)){
+    @Override
+    public void evaluateTier(String customerId) {
+        String normalizedCustomerId = requireCustomerId(customerId);
+        if (manualOverrides.containsKey(normalizedCustomerId)) {
             return;
         }
-        
-        double spend = orderService.getTotalSpendLastYear(customerId);
-        CustomerTier evaluatedTier = resolveTier(spend);
-        tierStore.compute(customerId, (id, ignored) -> {
+
+        double annualSpend = orderService.getTotalSpendLastYear(normalizedCustomerId);
+        int annualOrderCount = orderService.getOrderCountLastYear(normalizedCustomerId);
+
+        CustomerTier evaluatedTier = tierEvaluationStrategy.evaluate(
+                normalizedCustomerId,
+                annualSpend,
+                annualOrderCount
+        );
+
+        tierStore.compute(normalizedCustomerId, (id, ignored) -> {
             CustomerTier overriddenTier = manualOverrides.get(id);
             return overriddenTier != null ? overriddenTier : evaluatedTier;
         });
     }
 
     @Override
-    public void overrideTier(String customerId, CustomerTier tier){
+    public void overrideTier(String customerId, CustomerTier tier) {
+        String normalizedCustomerId = requireCustomerId(customerId);
         Objects.requireNonNull(tier, "tier cannot be null");
-        manualOverrides.put(customerId,tier);
-        tierStore.put(customerId,tier);
+        manualOverrides.put(normalizedCustomerId, tier);
+        tierStore.put(normalizedCustomerId, tier);
     }
 
-    private CustomerTier resolveTier(double spend) {
-        if(spend>=PLATINUM_MIN){
-            return CustomerTier.PLATINUM;
+    private static String requireCustomerId(String customerId) {
+        Objects.requireNonNull(customerId, "customerId cannot be null");
+        String normalized = customerId.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("customerId cannot be blank");
         }
-        if(spend>=GOLD_MIN){
-            return CustomerTier.GOLD;
-        }
-        if(spend>=SILVER_MIN){
-            return CustomerTier.SILVER;
-        }
-        return CustomerTier.STANDARD;
+        return normalized;
     }
 }

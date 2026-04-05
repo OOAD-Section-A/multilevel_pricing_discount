@@ -1,6 +1,9 @@
 package com.pricingos.common;
 
-public enum ContractStatus{
+/**
+ * Lifecycle states for a customer contract.
+ */
+public enum ContractStatus {
     DRAFT,
     PENDING_APPROVAL,
     ACTIVE,

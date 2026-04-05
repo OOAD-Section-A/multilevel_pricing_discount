@@ -10,7 +10,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * Contract aggregate that owns lifecycle transitions and SKU-specific contract pricing.
+ * Creational pattern: Builder is used for safe construction.
+ * GRASP Information Expert: this class keeps contract state and transition rules together.
+ */
 public class Contract {
+    // Behavior is constrained through an explicit state transition map.
     private static final Map<ContractStatus, Set<ContractStatus>> ALLOWED_TRANSITIONS = buildAllowedTransitions();
 
     private final String contractId;
@@ -23,46 +29,52 @@ public class Contract {
     public Contract(String contractId, String customerId,
                     LocalDate startDate, LocalDate endDate,
                     Map<String, Double> skuPrices) {
-        this.contractId = Objects.requireNonNull(contractId, "contractId cannot be null");
-        this.customerId = Objects.requireNonNull(customerId, "customerId cannot be null");
+        this.contractId = requireId(contractId, "contractId");
+        this.customerId = requireId(customerId, "customerId");
         this.startDate = Objects.requireNonNull(startDate, "startDate cannot be null");
         this.endDate = Objects.requireNonNull(endDate, "endDate cannot be null");
         if (endDate.isBefore(startDate)) {
             throw new IllegalArgumentException("endDate cannot be before startDate");
         }
         this.status = ContractStatus.DRAFT;
-        this.skuPrices = Collections.unmodifiableMap(
-                new HashMap<>(Objects.requireNonNull(skuPrices, "skuPrices cannot be null"))
-        );
+        this.skuPrices = Collections.unmodifiableMap(validateSkuPrices(
+            Objects.requireNonNull(skuPrices, "skuPrices cannot be null")
+        ));
     }
 
     public static Builder builder(String contractId, String customerId) {
         return new Builder(contractId, customerId);
     }
 
-    public String getContractId(){ 
+    public String getContractId() {
         return contractId;
     }
-    public String getCustomerId(){
+
+    public String getCustomerId() {
         return customerId;
     }
-    public LocalDate getStartDate(){
+
+    public LocalDate getStartDate() {
         return startDate;
     }
-    public LocalDate getEndDate(){
+
+    public LocalDate getEndDate() {
         synchronized (this) {
             return endDate;
         }
     }
-    public ContractStatus getStatus(){
+
+    public ContractStatus getStatus() {
         synchronized (this) {
             return status;
         }
     }
-    public void setStatus(ContractStatus status){
+
+    public void setStatus(ContractStatus status) {
         transitionTo(status);
     }
-    public void setEndDate(LocalDate endDate){
+
+    public void setEndDate(LocalDate endDate) {
         Objects.requireNonNull(endDate, "endDate cannot be null");
         synchronized (this) {
             if (endDate.isBefore(startDate)) {
@@ -71,9 +83,11 @@ public class Contract {
             this.endDate = endDate;
         }
     }
+
     public Double getPrice(String skuId) {
-        return skuPrices.get(skuId);
+        return skuPrices.get(requireId(skuId, "skuId"));
     }
+
     public boolean isActiveOn(LocalDate date) {
         Objects.requireNonNull(date, "date cannot be null");
         synchronized (this) {
@@ -133,7 +147,29 @@ public class Contract {
         transitions.put(ContractStatus.ACTIVE, EnumSet.of(ContractStatus.EXPIRING, ContractStatus.EXPIRED));
         transitions.put(ContractStatus.EXPIRING, EnumSet.of(ContractStatus.ACTIVE, ContractStatus.EXPIRED));
         transitions.put(ContractStatus.EXPIRED, EnumSet.of(ContractStatus.ACTIVE));
-        return transitions;
+        return Collections.unmodifiableMap(transitions);
+    }
+
+    private static String requireId(String value, String fieldName) {
+        Objects.requireNonNull(value, fieldName + " cannot be null");
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " cannot be blank");
+        }
+        return normalized;
+    }
+
+    private static Map<String, Double> validateSkuPrices(Map<String, Double> inputPrices) {
+        Map<String, Double> validatedPrices = new HashMap<>();
+        for (Map.Entry<String, Double> entry : inputPrices.entrySet()) {
+            String skuId = requireId(entry.getKey(), "skuId");
+            Double price = Objects.requireNonNull(entry.getValue(), "price cannot be null for skuId " + skuId);
+            if (!Double.isFinite(price) || price < 0.0) {
+                throw new IllegalArgumentException("price must be a non-negative finite number for skuId " + skuId);
+            }
+            validatedPrices.put(skuId, price);
+        }
+        return validatedPrices;
     }
 
     public static class Builder {
@@ -144,8 +180,8 @@ public class Contract {
         private final Map<String, Double> skuPrices = new HashMap<>();
 
         private Builder(String contractId, String customerId) {
-            this.contractId = Objects.requireNonNull(contractId, "contractId cannot be null");
-            this.customerId = Objects.requireNonNull(customerId, "customerId cannot be null");
+            this.contractId = requireId(contractId, "contractId");
+            this.customerId = requireId(customerId, "customerId");
         }
 
         public Builder startDate(LocalDate startDate) {
@@ -159,12 +195,16 @@ public class Contract {
         }
 
         public Builder skuPrice(String skuId, double price) {
-            skuPrices.put(Objects.requireNonNull(skuId, "skuId cannot be null"), price);
+            String normalizedSkuId = requireId(skuId, "skuId");
+            if (!Double.isFinite(price) || price < 0.0) {
+                throw new IllegalArgumentException("price must be a non-negative finite number");
+            }
+            skuPrices.put(normalizedSkuId, price);
             return this;
         }
 
         public Builder skuPrices(Map<String, Double> skuPrices) {
-            this.skuPrices.putAll(Objects.requireNonNull(skuPrices, "skuPrices cannot be null"));
+            this.skuPrices.putAll(validateSkuPrices(Objects.requireNonNull(skuPrices, "skuPrices cannot be null")));
             return this;
         }
 

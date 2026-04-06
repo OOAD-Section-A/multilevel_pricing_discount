@@ -3,6 +3,8 @@ package com.pricingos.pricing.approval;
 import com.pricingos.common.ApprovalRequestType;
 import com.pricingos.common.ApprovalStatus;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -27,23 +29,30 @@ public class ApprovalRequest {
     private final String justificationText;
     private final LocalDateTime submissionTime;
 
+    /** Clock used for all time computations — injected to allow deterministic testing. */
+    private final Clock clock;
+
     // Mutable fields updated as the request moves through the workflow.
     private ApprovalStatus status;
     private String approvingManagerId;          // set when manager acts
+    private String routedToApproverId;          // set on submit, updated on escalation
     private LocalDateTime approvalTimestamp;    // set when decision is made
+    private LocalDateTime escalationTime;       // set when the request is escalated
     private boolean auditLogFlag;               // true once audit entry is written
     private String rejectionReason;            // populated on REJECTED status
 
     ApprovalRequest(String approvalId, ApprovalRequestType requestType,
                     String requestedBy, String orderId,
-                    double requestedDiscountAmt, String justificationText) {
+                    double requestedDiscountAmt, String justificationText,
+                    Clock clock) {
         this.approvalId           = requireNonBlank(approvalId, "approvalId");
         this.requestType          = Objects.requireNonNull(requestType, "requestType cannot be null");
         this.requestedBy          = requireNonBlank(requestedBy, "requestedBy");
         this.orderId              = requireNonBlank(orderId, "orderId");
         this.requestedDiscountAmt = requireFiniteNonNeg(requestedDiscountAmt, "requestedDiscountAmt");
         this.justificationText    = Objects.requireNonNull(justificationText, "justificationText cannot be null");
-        this.submissionTime       = LocalDateTime.now();
+        this.clock                = Objects.requireNonNull(clock, "clock cannot be null");
+        this.submissionTime       = LocalDateTime.now(clock);
         this.status               = ApprovalStatus.PENDING;
         this.auditLogFlag         = false;
     }
@@ -58,7 +67,7 @@ public class ApprovalRequest {
         requirePendingOrEscalated("approve");
         this.approvingManagerId = requireNonBlank(approverId, "approverId");
         this.status             = ApprovalStatus.APPROVED;
-        this.approvalTimestamp  = LocalDateTime.now();
+        this.approvalTimestamp  = LocalDateTime.now(clock);
         this.auditLogFlag       = true;
     }
 
@@ -66,34 +75,49 @@ public class ApprovalRequest {
      * Marks the request as REJECTED. Handles the OVERRIDE_REQUEST_REJECTED exception
      * from the Exception Table (MINOR): the caller is responsible for reverting the
      * transaction to the last valid standard price.
+     *
+     * @param approverId manager or system actor performing the rejection
+     * @param reason     non-blank reason for rejection; recorded in the audit trail
      */
     synchronized void markAsRejected(String approverId, String reason) {
         requirePendingOrEscalated("reject");
         this.approvingManagerId = requireNonBlank(approverId, "approverId");
-        this.rejectionReason    = reason;
+        this.rejectionReason    = requireNonBlank(reason, "reason");
         this.status             = ApprovalStatus.REJECTED;
-        this.approvalTimestamp  = LocalDateTime.now();
+        this.approvalTimestamp  = LocalDateTime.now(clock);
         this.auditLogFlag       = true;
     }
 
     /**
      * Escalates the request to the secondary/regional manager.
      * Handles APPROVAL_ESCALATION_TIMEOUT (MINOR): triggered when the request has been
-     * PENDING for more than 48 hours.
+     * PENDING for more than 48 hours. Records the escalation timestamp for the second
+     * SLA window (auto-reject after a further 48 hours of inactivity).
      */
     synchronized void markAsEscalated() {
         if (status != ApprovalStatus.PENDING) {
             throw new IllegalStateException("Only PENDING requests can be escalated, current status: " + status);
         }
         this.status = ApprovalStatus.ESCALATED;
+        this.escalationTime = LocalDateTime.now(clock);
         // auditLogFlag is set true so the escalation event is captured.
         this.auditLogFlag = true;
     }
 
-    /** Returns how many hours this request has been waiting in PENDING/ESCALATED state. */
+    /** Returns how many hours this request has been waiting in PENDING state (from submission). */
     synchronized long getPendingHours() {
-        if (status == ApprovalStatus.APPROVED || status == ApprovalStatus.REJECTED) return 0L;
-        return java.time.Duration.between(submissionTime, LocalDateTime.now()).toHours();
+        if (status != ApprovalStatus.PENDING) return 0L;
+        return Duration.between(submissionTime, LocalDateTime.now(clock)).toHours();
+    }
+
+    /**
+     * Returns how many hours have elapsed since this request was escalated.
+     * Used to determine whether the second SLA window (auto-reject) has been breached.
+     * Returns 0 if the request has not been escalated.
+     */
+    synchronized long getEscalatedHours() {
+        if (status != ApprovalStatus.ESCALATED || escalationTime == null) return 0L;
+        return Duration.between(escalationTime, LocalDateTime.now(clock)).toHours();
     }
 
     // ── Getters ───────────────────────────────────────────────────────────────────
@@ -107,7 +131,10 @@ public class ApprovalRequest {
     public LocalDateTime getSubmissionTime() { return submissionTime; }
     public synchronized ApprovalStatus getStatus()    { return status; }
     public synchronized String getApprovingManagerId(){ return approvingManagerId; }
+    public synchronized String getRoutedToApproverId(){ return routedToApproverId; }
+    synchronized void setRoutedToApproverId(String id){ this.routedToApproverId = id; }
     public synchronized LocalDateTime getApprovalTimestamp() { return approvalTimestamp; }
+    public synchronized LocalDateTime getEscalationTime()    { return escalationTime; }
     public synchronized boolean isAuditLogFlag()      { return auditLogFlag; }
     public synchronized String getRejectionReason()   { return rejectionReason; }
 

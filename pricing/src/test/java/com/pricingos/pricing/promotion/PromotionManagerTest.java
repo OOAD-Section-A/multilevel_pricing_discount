@@ -35,6 +35,7 @@ class PromotionManagerTest {
     private static final LocalDate TODAY   = LocalDate.now();
     private static final LocalDate PAST    = TODAY.minusDays(1);
     private static final LocalDate FUTURE  = TODAY.plusDays(30);
+    private static final LocalDate TOMORROW = TODAY.plusDays(1);
 
     @BeforeEach
     void setUp() {
@@ -71,6 +72,23 @@ class PromotionManagerTest {
                 TODAY, FUTURE, List.of("SKU-001"), 0, 0));
     }
 
+    @Test
+    void createPromotion_nullSkuInList_throws() {
+        List<String> skusWithNull = new java.util.ArrayList<>();
+        skusWithNull.add("SKU-001");
+        skusWithNull.add(null);
+        assertThrows(IllegalArgumentException.class, () ->
+            manager.createPromotion("Bad", "NULLSKU", DiscountType.FIXED_AMOUNT, 10.0,
+                TODAY, FUTURE, skusWithNull, 0, 0));
+    }
+
+    @Test
+    void createPromotion_blankSkuInList_throws() {
+        assertThrows(IllegalArgumentException.class, () ->
+            manager.createPromotion("Bad", "BLANKSKU", DiscountType.FIXED_AMOUNT, 10.0,
+                TODAY, FUTURE, List.of("SKU-001", "  "), 0, 0));
+    }
+
     // ── Validate coupon ───────────────────────────────────────────────────────────
 
     @Test
@@ -103,6 +121,15 @@ class PromotionManagerTest {
     }
 
     // ── INVALID_PROMO_CODE exception variants ─────────────────────────────────────
+
+    @Test
+    void validateAndGetDiscount_notYetStartedPromo_throwsNotYetActive() {
+        manager.createPromotion("FuturePromo", "FUTURE10", DiscountType.PERCENTAGE_OFF, 10.0,
+            TOMORROW, FUTURE, List.of("SKU-001"), 0, 0);
+        InvalidPromoCodeException ex = assertThrows(InvalidPromoCodeException.class,
+            () -> manager.validateAndGetDiscount("FUTURE10", "SKU-001", 100.0));
+        assertEquals(InvalidPromoCodeException.Reason.NOT_YET_ACTIVE, ex.getReason());
+    }
 
     @Test
     void validateAndGetDiscount_unknownCode_throwsNotFound() {

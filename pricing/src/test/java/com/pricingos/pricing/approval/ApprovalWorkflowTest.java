@@ -6,6 +6,10 @@ import com.pricingos.common.IApproverRoleService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -195,5 +199,85 @@ class ApprovalWorkflowTest {
 
     private String submitRequest(String employee, ApprovalRequestType type, double amount) {
         return engine.submitOverrideRequest(employee, type, "ORD-001", amount, "Test justification");
+    }
+
+    // ── Escalation time-based tests ───────────────────────────────────────────────
+
+    @Test
+    void escalateStaleRequests_pendingAfter48h_becomesEscalated() {
+        SettableClock clock = new SettableClock();
+        ApprovalWorkflowEngine clockedEngine = new ApprovalWorkflowEngine(STUB_STRATEGY, STUB_ROLE_SERVICE, clock);
+        CapturingObserver clockedObserver = new CapturingObserver();
+        clockedEngine.addObserver(clockedObserver);
+
+        String id = clockedEngine.submitOverrideRequest(
+            "EMP-01", ApprovalRequestType.MANUAL_DISCOUNT, "ORD-002", 100.0, "Test");
+
+        clock.advance(Duration.ofHours(49));
+        clockedEngine.escalateStaleRequests();
+
+        assertEquals(ApprovalStatus.ESCALATED, clockedEngine.getStatus(id),
+            "Request pending for >48h should be escalated.");
+        assertTrue(clockedObserver.events.stream().anyMatch(e -> e.startsWith("ESCALATED:" + id)),
+            "ESCALATED observer event should be fired.");
+    }
+
+    @Test
+    void escalateStaleRequests_escalatedAfter48hFromEscalation_becomesAutoRejected() {
+        SettableClock clock = new SettableClock();
+        ApprovalWorkflowEngine clockedEngine = new ApprovalWorkflowEngine(STUB_STRATEGY, STUB_ROLE_SERVICE, clock);
+
+        String id = clockedEngine.submitOverrideRequest(
+            "EMP-01", ApprovalRequestType.MANUAL_DISCOUNT, "ORD-003", 100.0, "Test");
+
+        // Advance 49h → triggers escalation
+        clock.advance(Duration.ofHours(49));
+        clockedEngine.escalateStaleRequests();
+        assertEquals(ApprovalStatus.ESCALATED, clockedEngine.getStatus(id));
+
+        // Advance another 49h from escalation → triggers auto-reject
+        clock.advance(Duration.ofHours(49));
+        clockedEngine.escalateStaleRequests();
+        assertEquals(ApprovalStatus.REJECTED, clockedEngine.getStatus(id),
+            "Request escalated for >48h should be auto-rejected.");
+    }
+
+    @Test
+    void reject_blankReason_throws() {
+        String id = submitRequest("EMP-01", ApprovalRequestType.MANUAL_DISCOUNT, 100.0);
+        assertThrows(IllegalArgumentException.class, () -> engine.reject(id, "MGR-001", "  "),
+            "Blank rejection reason should be rejected.");
+        assertEquals(ApprovalStatus.PENDING, engine.getStatus(id),
+            "Status should remain PENDING after a failed reject call.");
+    }
+
+    @Test
+    void getPendingApprovals_onlyReturnsRequestsRoutedToThatApprover() {
+        // All requests in this test are routed to MGR-001 by the stub strategy.
+        String id1 = submitRequest("EMP-01", ApprovalRequestType.MANUAL_DISCOUNT, 100.0);
+        String id2 = submitRequest("EMP-02", ApprovalRequestType.CONTRACT_BYPASS, 200.0);
+
+        // Another approver should see no requests since none are routed to them.
+        List<String> forOther = engine.getPendingApprovals("MGR-999");
+        assertTrue(forOther.isEmpty(), "MGR-999 should have no pending requests.");
+
+        List<String> forMgr001 = engine.getPendingApprovals("MGR-001");
+        assertTrue(forMgr001.contains(id1));
+        assertTrue(forMgr001.contains(id2));
+    }
+
+    /**
+     * Controllable clock for deterministic time-based tests.
+     * Not intended for production use.
+     */
+    private static class SettableClock extends Clock {
+        private Instant now = Instant.now();
+        private final ZoneId zone = ZoneId.systemDefault();
+
+        void advance(Duration d) { now = now.plus(d); }
+
+        @Override public ZoneId getZone()               { return zone; }
+        @Override public Clock withZone(ZoneId z)        { SettableClock c = new SettableClock(); c.now = this.now; return c; }
+        @Override public Instant instant()              { return now; }
     }
 }

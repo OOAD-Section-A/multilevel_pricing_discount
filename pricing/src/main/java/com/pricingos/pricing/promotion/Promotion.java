@@ -65,7 +65,7 @@ public class Promotion {
      * @param today     the date to evaluate validity against
      * @return applicability flag
      */
-    public boolean isApplicableTo(String skuId, double cartTotal, LocalDate today) {
+    public synchronized boolean isApplicableTo(String skuId, double cartTotal, LocalDate today) {
         Objects.requireNonNull(skuId, "skuId cannot be null");
         Objects.requireNonNull(today, "today cannot be null");
 
@@ -84,11 +84,16 @@ public class Promotion {
 
     /**
      * Computes the actual monetary discount amount to deduct from the line price.
-     * Handles PERCENTAGE_OFF and FIXED_AMOUNT; BUY_X_GET_Y discount is returned
-     * as a percentage (1.0 = 100% off one unit) and must be resolved by the caller.
+     * <ul>
+     *   <li>PERCENTAGE_OFF: {@code lineSubtotal × (discountValue / 100)}</li>
+     *   <li>FIXED_AMOUNT: {@code min(discountValue, lineSubtotal)} — capped so it never exceeds the price</li>
+     *   <li>BUY_X_GET_Y: treated as a percentage discount applied to the subtotal
+     *       ({@code lineSubtotal × (discountValue / 100)}); the caller is responsible
+     *       for mapping the X/Y unit logic to the correct {@code discountValue}.</li>
+     * </ul>
      *
      * @param lineSubtotal the price of the line item before this discount
-     * @return the discount amount to subtract (never negative)
+     * @return the monetary discount amount to subtract (never negative)
      */
     public double computeDiscountAmount(double lineSubtotal) {
         return switch (discountType) {

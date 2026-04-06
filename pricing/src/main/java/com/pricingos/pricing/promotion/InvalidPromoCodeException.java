@@ -14,6 +14,8 @@ public class InvalidPromoCodeException extends RuntimeException {
     public enum Reason {
         /** The coupon code does not exist in the system. */
         NOT_FOUND,
+        /** The promotion's start_date is in the future — not yet active. */
+        NOT_YET_ACTIVE,
         /** The promotion's end_date is in the past. */
         EXPIRED,
         /** The coupon exists but does not apply to the requested SKU. */
@@ -42,6 +44,7 @@ public class InvalidPromoCodeException extends RuntimeException {
             code,
             switch (reason) {
                 case NOT_FOUND      -> "invalid or does not exist";
+                case NOT_YET_ACTIVE -> "not yet active: promotion starts in the future";
                 case EXPIRED        -> "expired";
                 case SKU_NOT_ELIGIBLE -> "not applicable to the current cart items";
                 case CART_VALUE_TOO_LOW -> "not applicable: cart value is below the minimum threshold";

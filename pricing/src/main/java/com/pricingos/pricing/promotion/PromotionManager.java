@@ -83,10 +83,19 @@ public class PromotionManager implements IPromotionService {
         // Validate all SKUs exist in the Inventory catalog (boundary check — SOLID DIP).
         // Done first because it is the expensive external call; the uniqueness check is atomic below.
         Objects.requireNonNull(eligibleSkuIds, "eligibleSkuIds cannot be null");
+        List<String> normalizedSkuIds = new ArrayList<>();
         for (String skuId : eligibleSkuIds) {
-            if (!skuCatalogService.isSkuActive(skuId)) {
-                throw new IllegalArgumentException("SKU '" + skuId + "' is not active in the product catalog.");
+            if (skuId == null) {
+                throw new IllegalArgumentException("eligibleSkuIds contains a null entry");
             }
+            String trimmedSku = skuId.trim();
+            if (trimmedSku.isEmpty()) {
+                throw new IllegalArgumentException("eligibleSkuIds contains a blank entry");
+            }
+            if (!skuCatalogService.isSkuActive(trimmedSku)) {
+                throw new IllegalArgumentException("SKU '" + trimmedSku + "' is not active in the product catalog.");
+            }
+            normalizedSkuIds.add(trimmedSku);
         }
 
         // PERCENTAGE_OFF: guard against values > 100% which would produce negative prices.
@@ -103,7 +112,7 @@ public class PromotionManager implements IPromotionService {
             .discountValue(discountValue)
             .startDate(startDate)
             .endDate(endDate)
-            .eligibleSkuIds(eligibleSkuIds)
+            .eligibleSkuIds(normalizedSkuIds)
             .minCartValue(minCartValue)
             .maxUses(maxUses)
             .build();
@@ -143,6 +152,9 @@ public class PromotionManager implements IPromotionService {
 
         // ── Exception: code is expired ─────────────────────────────────────────
         LocalDate today = LocalDate.now();
+        if (today.isBefore(promo.getStartDate())) {
+            throw new InvalidPromoCodeException(normalizedCode, Reason.NOT_YET_ACTIVE);
+        }
         if (promo.isExpiredOn(today) || promo.isExpired()) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.EXPIRED);
         }
@@ -191,13 +203,8 @@ public class PromotionManager implements IPromotionService {
     public List<String> getActivePromoCodes() {
         LocalDate today = LocalDate.now();
         return couponRegistry.values().stream()
-            .filter(p -> p.isApplicableTo(
-                p.getEligibleSkuIds().isEmpty() ? "" : p.getEligibleSkuIds().get(0),
-                Double.MAX_VALUE, // ignore cart value for catalog listing
-                today))
-            // We want all codes, not just ones matching a single SKU, so
-            // re-filter just on date and redemption count here:
-            .filter(p -> !p.isExpiredOn(today) && !p.isExpired())
+            .filter(p -> !p.isExpired())
+            .filter(p -> !today.isBefore(p.getStartDate()) && !today.isAfter(p.getEndDate()))
             .filter(p -> p.getMaxUses() == 0 || p.getCurrentUseCount() < p.getMaxUses())
             .map(Promotion::getCouponCode)
             .sorted()

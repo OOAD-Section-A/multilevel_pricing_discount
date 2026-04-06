@@ -5,6 +5,7 @@ import com.pricingos.common.ApprovalStatus;
 import com.pricingos.common.IApprovalWorkflowService;
 import com.pricingos.common.IApproverRoleService;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,12 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private final IApproverRoleService approverRoleService;
 
     /**
+     * Clock used for all time computations — injected to allow deterministic testing.
+     * The clock is also passed down to each {@link ApprovalRequest} at construction time.
+     */
+    private final Clock clock;
+
+    /**
      * Registered observers (Behavioural — Observer pattern).
      * CopyOnWriteArrayList ensures thread-safe iteration during notification.
      */
@@ -81,10 +88,21 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
     private final AtomicInteger idCounter = new AtomicInteger();
 
+    /** Production constructor — uses the system default clock. */
     public ApprovalWorkflowEngine(ApprovalRoutingStrategy routingStrategy,
                                   IApproverRoleService approverRoleService) {
-        this.routingStrategy    = Objects.requireNonNull(routingStrategy, "routingStrategy cannot be null");
+        this(routingStrategy, approverRoleService, Clock.systemDefaultZone());
+    }
+
+    /**
+     * Testing constructor — accepts an explicit clock so SLA-based logic can be
+     * exercised deterministically without real wall-clock delays.
+     */
+    ApprovalWorkflowEngine(ApprovalRoutingStrategy routingStrategy,
+                           IApproverRoleService approverRoleService, Clock clock) {
+        this.routingStrategy     = Objects.requireNonNull(routingStrategy, "routingStrategy cannot be null");
         this.approverRoleService = Objects.requireNonNull(approverRoleService, "approverRoleService cannot be null");
+        this.clock               = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
     // ── Observer registration ─────────────────────────────────────────────────────
@@ -118,11 +136,12 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
         ApprovalRequest request = new ApprovalRequest(
             approvalId, requestType, requestedBy, orderId,
-            requestedDiscountAmt, justificationText
+            requestedDiscountAmt, justificationText, clock
         );
 
         // Strategy resolves the primary approver from T3N50R hierarchy.
         String targetApproverId = routingStrategy.resolveApproverId(request);
+        request.setRoutedToApproverId(targetApproverId);
 
         requestStore.put(approvalId, request);
 
@@ -163,6 +182,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
      */
     @Override
     public void reject(String approvalId, String approverId, String reason) {
+        requireNonBlank(reason, "reason");
         ApprovalRequest request = getRequest(approvalId);
 
         if (!approverRoleService.canApprove(approverId, request.getRequestType(),
@@ -180,16 +200,15 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     /**
      * {@inheritDoc}
      *
-     * <p>Returns all request IDs (not objects) currently routed to this approver
-     * that remain in PENDING status. The approver dashboard fetches full details
-     * separately using getStatus / the request store.
+     * <p>Returns all request IDs currently routed to this approver that are in PENDING
+     * or ESCALATED status. ESCALATED requests are included so the approver dashboard
+     * continues to surface requests that need attention after SLA escalation.
      */
     @Override
     public List<String> getPendingApprovals(String approverId) {
         requireNonBlank(approverId, "approverId");
-        // In a real system with a DB, the query would filter by routed approverId.
-        // In this in-memory store we return all PENDING requests for the approver.
         return requestStore.values().stream()
+            .filter(r -> approverId.equals(r.getRoutedToApproverId()))
             .filter(r -> r.getStatus() == ApprovalStatus.PENDING || r.getStatus() == ApprovalStatus.ESCALATED)
             .map(ApprovalRequest::getApprovalId)
             .sorted()
@@ -214,11 +233,12 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
         for (ApprovalRequest request : requestStore.values()) {
             ApprovalStatus status = request.getStatus();
-            long pendingHours = request.getPendingHours();
 
-            if (status == ApprovalStatus.PENDING && pendingHours >= ESCALATION_THRESHOLD_HOURS) {
+            if (status == ApprovalStatus.PENDING
+                    && request.getPendingHours() >= ESCALATION_THRESHOLD_HOURS) {
                 toEscalate.add(request);
-            } else if (status == ApprovalStatus.ESCALATED && pendingHours >= AUTO_REJECT_THRESHOLD_HOURS) {
+            } else if (status == ApprovalStatus.ESCALATED
+                    && request.getEscalatedHours() >= AUTO_REJECT_THRESHOLD_HOURS) {
                 toAutoReject.add(request);
             }
         }
@@ -229,7 +249,10 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             // Fetch the next manager in the T3N50R hierarchy above the primary approver.
             String primaryApprover = routingStrategy.resolveApproverId(request);
             String escalationTarget = approverRoleService.getEscalationManagerId(primaryApprover);
-            notifyEscalated(request, escalationTarget != null ? escalationTarget : "REGIONAL_MANAGER");
+            if (escalationTarget == null) escalationTarget = "REGIONAL_MANAGER";
+            // Update the routed approver so the escalation target sees it in their queue.
+            request.setRoutedToApproverId(escalationTarget);
+            notifyEscalated(request, escalationTarget);
         }
 
         // Auto-reject: no one acted within the second SLA window.

@@ -4,6 +4,7 @@ import com.pricingos.common.ApprovalRequestType;
 import com.pricingos.common.ApprovalStatus;
 import com.pricingos.common.IApprovalWorkflowService;
 import com.pricingos.common.IApproverRoleService;
+import com.pricingos.common.IFloorPriceService;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -59,6 +60,14 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     /** SLA before an ESCALATED request is auto-rejected (hours after escalation). */
     private static final long AUTO_REJECT_THRESHOLD_HOURS = 48L;
 
+    /**
+     * Optional boundary with the Base Price Config team (Component 3).
+     * When set, approval is blocked if the discount would push the net price below the floor.
+     * Nullable — if not configured, margin checks are skipped (backward compatible).
+     * Set via {@link #withFloorPriceService(IFloorPriceService)}.
+     */
+    private volatile IFloorPriceService floorPriceService;
+
     /** All requests, keyed by approval_id. Thread-safe map for concurrent access. */
     private final Map<String, ApprovalRequest> requestStore = new ConcurrentHashMap<>();
 
@@ -103,6 +112,19 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         this.routingStrategy     = Objects.requireNonNull(routingStrategy, "routingStrategy cannot be null");
         this.approverRoleService = Objects.requireNonNull(approverRoleService, "approverRoleService cannot be null");
         this.clock               = Objects.requireNonNull(clock, "clock cannot be null");
+    }
+
+    /**
+     * Registers the floor price service for margin protection checks.
+     * Call this before processing any approvals if margin enforcement is required.
+     * Not required for backward compatibility — when null, margin checks are skipped.
+     *
+     * @param floorPriceService boundary service provided by the Base Price Config team
+     * @return this engine (fluent API)
+     */
+    public ApprovalWorkflowEngine withFloorPriceService(IFloorPriceService floorPriceService) {
+        this.floorPriceService = floorPriceService;
+        return this;
     }
 
     // ── Observer registration ─────────────────────────────────────────────────────
@@ -171,6 +193,20 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             throw new IllegalArgumentException(
                 "Approver [" + approverId + "] does not have authority to approve this request.");
         }
+
+        // ── Margin Protection (Component 8 — Margin Floor Protection feature) ───────────────
+        // Check floor price before recording approval. If violated, block the approval,
+        // notify observers (so the Pricing Admin UI can surface an alert), and throw
+        // MarginViolationException so the caller knows to revert to standard pricing.
+        if (floorPriceService != null
+                && floorPriceService.wouldViolateMargin(request.getOrderId(),
+                                                        request.getRequestedDiscountAmt())) {
+            double floorPrice = floorPriceService.getEffectiveFloorPrice(request.getOrderId());
+            notifyMarginViolation(request, floorPrice);
+            throw new MarginViolationException(
+                request.getOrderId(), floorPrice, request.getRequestedDiscountAmt());
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         request.markAsApproved(approverId);
 
@@ -250,9 +286,11 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         // Escalate: mark ESCALATED and notify secondary/regional manager.
         for (ApprovalRequest request : toEscalate) {
             request.markAsEscalated();
-            // Fetch the next manager in the T3N50R hierarchy above the primary approver.
-            String primaryApprover = routingStrategy.resolveApproverId(request);
-            String escalationTarget = approverRoleService.getEscalationManagerId(primaryApprover);
+            // BUG FIX: use the manager currently assigned to this request
+            // (getRoutedToApproverId) rather than re-running the routing strategy,
+            // which would return the original submitter's manager again — defeating escalation.
+            String currentApprover = request.getRoutedToApproverId();
+            String escalationTarget = approverRoleService.getEscalationManagerId(currentApprover);
             if (escalationTarget == null) escalationTarget = "REGIONAL_MANAGER";
             // Update the routed approver so the escalation target sees it in their queue.
             request.setRoutedToApproverId(escalationTarget);
@@ -280,7 +318,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         return getRequest(approvalId);
     }
 
-    // ── Observer notification helpers ─────────────────────────────────────────────
+    // ── Observer notification helpers ────────────────────────────────────────────
 
     private void notifySubmitted(ApprovalRequest request, String approverId) {
         for (ApprovalEventObserver observer : observers) {
@@ -303,6 +341,12 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private void notifyEscalated(ApprovalRequest request, String escalationTarget) {
         for (ApprovalEventObserver observer : observers) {
             observer.onRequestEscalated(request, escalationTarget);
+        }
+    }
+
+    private void notifyMarginViolation(ApprovalRequest request, double floorPrice) {
+        for (ApprovalEventObserver observer : observers) {
+            observer.onMarginViolationBlocked(request, floorPrice);
         }
     }
 

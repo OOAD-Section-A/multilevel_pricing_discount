@@ -142,11 +142,11 @@ public class Promotion {
     // ── Builder ───────────────────────────────────────────────────────────────────
 
     /** Entry point for the Builder. promoId is assigned by the engine, not the caller. */
-    static Builder builder(String promoId) {
+    public static Builder builder(String promoId) {
         return new Builder(promoId);
     }
 
-    static final class Builder {
+    public static final class Builder {
         private final String promoId;
         private String promoName;
         private String couponCode;

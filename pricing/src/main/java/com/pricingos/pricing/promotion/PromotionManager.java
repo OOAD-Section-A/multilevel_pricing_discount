@@ -270,6 +270,6 @@ public class PromotionManager implements IPromotionService {
     private static String requireNonBlank(String v, String field) {
         Objects.requireNonNull(v, field + " cannot be null");
         if (v.trim().isEmpty()) throw new IllegalArgumentException(field + " cannot be blank");
-        return v;
+        return v.trim();
     }
 }

@@ -91,7 +91,7 @@ public final class RebateProgram {
 
     // ── Getters ───────────────────────────────────────────────────────────────────
 
-    public String getProgamId()                          { return programId; }
+    public String getProgramId()                         { return programId; }
     public String getCustomerId()                        { return customerId; }
     public String getSkuId()                             { return skuId; }
     public double getTargetSpend()                       { return targetSpend; }

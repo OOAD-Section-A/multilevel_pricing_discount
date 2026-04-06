@@ -73,12 +73,15 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
      */
     @Override
     public double getDiscountedUnitPrice(String skuId, int quantity, double baseUnitPrice) {
+        Objects.requireNonNull(skuId, "skuId cannot be null");
+        String normalized = skuId.trim();
+        if (normalized.isEmpty()) throw new IllegalArgumentException("skuId cannot be blank");
         if (quantity < 1)
             throw new IllegalArgumentException("quantity must be >= 1, got: " + quantity);
         if (!Double.isFinite(baseUnitPrice) || baseUnitPrice < 0)
             throw new IllegalArgumentException("baseUnitPrice must be a non-negative finite number");
 
-        VolumePricingPromotion promo = promoBySkuId.get(skuId.trim());
+        VolumePricingPromotion promo = promoBySkuId.get(normalized);
         if (promo == null) return baseUnitPrice; // No schedule → full price
         return promo.computeDiscountedUnitPrice(baseUnitPrice, quantity);
     }
@@ -99,6 +102,6 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
 
     /** Returns the VolumePricingPromotion for a given SKU (package-private for tests). */
     VolumePricingPromotion getPromoForSku(String skuId) {
-        return promoBySkuId.get(skuId);
+        return promoBySkuId.get(skuId == null ? null : skuId.trim());
     }
 }

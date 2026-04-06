@@ -285,7 +285,14 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
         // Escalate: mark ESCALATED and notify secondary/regional manager.
         for (ApprovalRequest request : toEscalate) {
-            request.markAsEscalated();
+            // Re-check status: another thread may have approved/rejected since the scan.
+            if (request.getStatus() != ApprovalStatus.PENDING) continue;
+            try {
+                request.markAsEscalated();
+            } catch (IllegalStateException ignored) {
+                // Status changed between our check and the transition — skip.
+                continue;
+            }
             // BUG FIX: use the manager currently assigned to this request
             // (getRoutedToApproverId) rather than re-running the routing strategy,
             // which would return the original submitter's manager again — defeating escalation.
@@ -299,8 +306,15 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
         // Auto-reject: no one acted within the second SLA window.
         for (ApprovalRequest request : toAutoReject) {
-            request.markAsRejected("SYSTEM", "Auto-rejected: no manager action within SLA window. "
-                + "Transaction reverted to standard pricing.");
+            // Re-check status: another thread may have acted since the scan.
+            if (request.getStatus() != ApprovalStatus.ESCALATED) continue;
+            try {
+                request.markAsRejected("SYSTEM", "Auto-rejected: no manager action within SLA window. "
+                    + "Transaction reverted to standard pricing.");
+            } catch (IllegalStateException ignored) {
+                // Status changed between our check and the transition — skip.
+                continue;
+            }
             notifyRejected(request);
         }
     }

@@ -103,8 +103,19 @@ public class Promotion {
         };
     }
 
-    /** Increments the redemption counter; called when an order is confirmed. */
+    /**
+     * Increments the redemption counter; called when an order is confirmed.
+     *
+     * <p>Enforces the configured max-use limit atomically with the increment so
+     * concurrent or repeated calls cannot exceed the cap.
+     *
+     * @throws IllegalStateException if the promotion has already reached its maximum uses
+     */
     public synchronized void recordRedemption() {
+        if (maxUses > 0 && currentUseCount >= maxUses) {
+            throw new IllegalStateException(
+                "Promotion " + promoId + " has reached its maximum number of uses (" + maxUses + ").");
+        }
         currentUseCount++;
     }
 

@@ -5,6 +5,7 @@ import com.pricingos.common.IPromotionService;
 import com.pricingos.common.ISkuCatalogService;
 import com.pricingos.pricing.promotion.InvalidPromoCodeException.Reason;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,13 +57,28 @@ public class PromotionManager implements IPromotionService {
     private final ISkuCatalogService skuCatalogService;
 
     /**
+     * Clock used for all date-based computations — injected to allow deterministic testing.
+     */
+    private final Clock clock;
+
+    /**
      * Maximum value percentage cap for promotions — guards against obviously wrong inputs.
      * Promotions above 100% off do not make business sense.
      */
     private static final double MAX_PERCENTAGE_VALUE = 100.0;
 
+    /** Production constructor — uses the system default clock. */
     public PromotionManager(ISkuCatalogService skuCatalogService) {
+        this(skuCatalogService, Clock.systemDefaultZone());
+    }
+
+    /**
+     * Testing constructor — accepts an explicit clock so date-based logic can be
+     * exercised deterministically without real wall-clock dependencies.
+     */
+    PromotionManager(ISkuCatalogService skuCatalogService, Clock clock) {
         this.skuCatalogService = Objects.requireNonNull(skuCatalogService, "skuCatalogService cannot be null");
+        this.clock             = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
     // ── IPromotionService implementation ─────────────────────────────────────────
@@ -71,7 +87,8 @@ public class PromotionManager implements IPromotionService {
      * {@inheritDoc}
      *
      * <p>Validates that all eligible_sku_ids exist in the Inventory catalog before creating
-     * the promotion. Coupon codes must be unique across the active promo catalog.
+     * the promotion. Coupon codes are globally unique and, once issued, cannot be reused
+     * even after the original promotion expires.
      */
     @Override
     public String createPromotion(String name, String couponCode, DiscountType discountType,
@@ -142,6 +159,9 @@ public class PromotionManager implements IPromotionService {
     public double validateAndGetDiscount(String couponCode, String skuId, double cartTotal) {
         String normalizedCode = requireNonBlank(couponCode, "couponCode").toUpperCase();
         requireNonBlank(skuId, "skuId");
+        if (!Double.isFinite(cartTotal) || cartTotal < 0) {
+            throw new IllegalArgumentException("cartTotal must be a non-negative finite number");
+        }
 
         Promotion promo = couponRegistry.get(normalizedCode);
 
@@ -151,7 +171,7 @@ public class PromotionManager implements IPromotionService {
         }
 
         // ── Exception: code is expired ─────────────────────────────────────────
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         if (today.isBefore(promo.getStartDate())) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.NOT_YET_ACTIVE);
         }
@@ -201,7 +221,7 @@ public class PromotionManager implements IPromotionService {
      */
     @Override
     public List<String> getActivePromoCodes() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         return couponRegistry.values().stream()
             .filter(p -> !p.isExpired())
             .filter(p -> !today.isBefore(p.getStartDate()) && !today.isAfter(p.getEndDate()))
@@ -228,7 +248,7 @@ public class PromotionManager implements IPromotionService {
      */
     @Override
     public void expireStalePromotions() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         couponRegistry.values().forEach(promo -> {
             if (promo.isExpiredOn(today)) {
                 promo.markExpired();

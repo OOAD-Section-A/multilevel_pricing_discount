@@ -141,6 +141,10 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
         // Strategy resolves the primary approver from T3N50R hierarchy.
         String targetApproverId = routingStrategy.resolveApproverId(request);
+        if (targetApproverId == null || targetApproverId.isBlank()) {
+            throw new IllegalStateException(
+                "Routing strategy returned a blank approver ID for request " + approvalId);
+        }
         request.setRoutedToApproverId(targetApproverId);
 
         requestStore.put(approvalId, request);

@@ -42,7 +42,8 @@ public interface IApprovalWorkflowService {
     void reject(String approvalId, String approverId, String reason);
 
     /**
-     * Returns all requests currently in PENDING status; intended for the approver dashboard.
+     * Returns all requests currently awaiting approver action, including requests in
+     * PENDING and ESCALATED status; intended for the approver dashboard.
      */
     List<String> getPendingApprovals(String approverId);
 

@@ -5,7 +5,10 @@ import com.pricingos.common.ISkuCatalogService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,14 +35,24 @@ class PromotionManagerTest {
     };
 
     private PromotionManager manager;
-    private static final LocalDate TODAY   = LocalDate.now();
-    private static final LocalDate PAST    = TODAY.minusDays(1);
-    private static final LocalDate FUTURE  = TODAY.plusDays(30);
+
+    /**
+     * Fixed reference date used as "today" throughout all tests.
+     * Using a fixed constant avoids midnight flakiness (where LocalDate.now() could
+     * disagree between test-class initialization and production-code execution).
+     */
+    private static final LocalDate TODAY    = LocalDate.of(2024, 6, 15);
+    private static final LocalDate PAST     = TODAY.minusDays(1);
+    private static final LocalDate FUTURE   = TODAY.plusDays(30);
     private static final LocalDate TOMORROW = TODAY.plusDays(1);
+
+    /** Fixed clock matching TODAY so PromotionManager's internal date computations agree with the test dates. */
+    private static final Clock FIXED_CLOCK  =
+        Clock.fixed(TODAY.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
 
     @BeforeEach
     void setUp() {
-        manager = new PromotionManager(STUB_CATALOG);
+        manager = new PromotionManager(STUB_CATALOG, FIXED_CLOCK);
     }
 
     // ── Create promotion ──────────────────────────────────────────────────────────

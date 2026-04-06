@@ -271,13 +271,22 @@ class ApprovalWorkflowTest {
      * Not intended for production use.
      */
     private static class SettableClock extends Clock {
-        private Instant now = Instant.now();
-        private final ZoneId zone = ZoneId.systemDefault();
+        private Instant now;
+        private final ZoneId zone;
+
+        SettableClock() {
+            this(Instant.now(), ZoneId.systemDefault());
+        }
+
+        private SettableClock(Instant now, ZoneId zone) {
+            this.now = now;
+            this.zone = zone;
+        }
 
         void advance(Duration d) { now = now.plus(d); }
 
-        @Override public ZoneId getZone()               { return zone; }
-        @Override public Clock withZone(ZoneId z)        { SettableClock c = new SettableClock(); c.now = this.now; return c; }
-        @Override public Instant instant()              { return now; }
+        @Override public ZoneId getZone()          { return zone; }
+        @Override public Clock withZone(ZoneId z)  { return new SettableClock(this.now, z); }
+        @Override public Instant instant()         { return now; }
     }
 }

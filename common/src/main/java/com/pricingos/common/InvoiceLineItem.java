@@ -110,7 +110,8 @@ public final class InvoiceLineItem {
         }
 
         public Builder appliedDiscounts(List<String> discounts) {
-            this.appliedDiscounts = Objects.requireNonNull(discounts, "appliedDiscounts cannot be null");
+            Objects.requireNonNull(discounts, "appliedDiscounts cannot be null");
+            this.appliedDiscounts = new java.util.ArrayList<>(discounts);
             return this;
         }
 

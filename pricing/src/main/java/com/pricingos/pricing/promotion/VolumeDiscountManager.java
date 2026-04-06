@@ -102,6 +102,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
 
     /** Returns the VolumePricingPromotion for a given SKU (package-private for tests). */
     VolumePricingPromotion getPromoForSku(String skuId) {
-        return promoBySkuId.get(skuId == null ? null : skuId.trim());
+        Objects.requireNonNull(skuId, "skuId cannot be null");
+        return promoBySkuId.get(skuId.trim());
     }
 }

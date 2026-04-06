@@ -80,12 +80,8 @@ public class PromotionManager implements IPromotionService {
 
         String normalizedCode = requireNonBlank(couponCode, "couponCode").toUpperCase();
 
-        // Reject duplicate coupon codes to prevent POLICY_STACKING_CONFLICT style issues.
-        if (couponRegistry.containsKey(normalizedCode)) {
-            throw new IllegalArgumentException("Coupon code '" + normalizedCode + "' already exists.");
-        }
-
         // Validate all SKUs exist in the Inventory catalog (boundary check — SOLID DIP).
+        // Done first because it is the expensive external call; the uniqueness check is atomic below.
         Objects.requireNonNull(eligibleSkuIds, "eligibleSkuIds cannot be null");
         for (String skuId : eligibleSkuIds) {
             if (!skuCatalogService.isSkuActive(skuId)) {
@@ -112,9 +108,14 @@ public class PromotionManager implements IPromotionService {
             .maxUses(maxUses)
             .build();
 
-        promoById.put(promoId, promo);
-        couponRegistry.put(normalizedCode, promo);
+        // Atomic uniqueness guarantee: putIfAbsent returns the existing value if the key was
+        // already present, or null if this thread won the insert. No two threads can both "win".
+        Promotion existing = couponRegistry.putIfAbsent(normalizedCode, promo);
+        if (existing != null) {
+            throw new IllegalArgumentException("Coupon code '" + normalizedCode + "' already exists.");
+        }
 
+        promoById.put(promoId, promo);
         return promoId;
     }
 

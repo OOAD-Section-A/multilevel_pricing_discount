@@ -108,14 +108,17 @@ public class PromotionManager implements IPromotionService {
             .maxUses(maxUses)
             .build();
 
+        // promoId is guaranteed unique (AtomicInteger), so this put is always safe.
+        promoById.put(promoId, promo);
+
         // Atomic uniqueness guarantee: putIfAbsent returns the existing value if the key was
         // already present, or null if this thread won the insert. No two threads can both "win".
         Promotion existing = couponRegistry.putIfAbsent(normalizedCode, promo);
         if (existing != null) {
+            promoById.remove(promoId); // rollback — keep maps consistent
             throw new IllegalArgumentException("Coupon code '" + normalizedCode + "' already exists.");
         }
 
-        promoById.put(promoId, promo);
         return promoId;
     }
 

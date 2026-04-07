@@ -1,6 +1,6 @@
 package com.pricingos.pricing.baseprice;
 
-import com.pricingos.pricing.pricelist.PriceListManager;
+import com.pricingos.pricing.PricingConstants;
 import java.util.Date;
 import java.util.Objects;
 
@@ -119,7 +119,7 @@ public final class BasePriceRecord {
         private String priceType = "BASE";
         private double basePrice;
         private double priceFloor;
-        private String currencyCode = PriceListManager.DEFAULT_CURRENCY;
+        private String currencyCode = PricingConstants.DEFAULT_CURRENCY;
         private Date configuredAt = new Date();
 
         /**

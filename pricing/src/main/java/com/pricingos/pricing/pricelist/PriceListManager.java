@@ -1,5 +1,6 @@
 package com.pricingos.pricing.pricelist;
 
+import com.pricingos.pricing.PricingConstants;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,7 +28,7 @@ import java.util.logging.Logger;
  */
 public class PriceListManager {
 
-    public static final String DEFAULT_CURRENCY = "INR";
+    public static final String DEFAULT_CURRENCY = PricingConstants.DEFAULT_CURRENCY;
 
     private static final Logger LOGGER = Logger.getLogger(PriceListManager.class.getName());
 

@@ -20,9 +20,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.logging.Logger;
 
-/**
- * Central orchestrator for discount strategy application and price floor enforcement.
- */
 public class DiscountRulesEngine implements IDiscountRulesEngine {
 
     private static final Logger LOGGER = Logger.getLogger(DiscountRulesEngine.class.getName());
@@ -36,18 +33,6 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     private final List<IDiscountStrategy> strategies;
     private final int maxStackableDiscounts;
 
-    /**
-     * Constructs the discount engine with all required dependencies.
-     * All services are injected as interfaces, not concrete classes (SOLID DIP).
-     *
-     * @param priceStore            price lookup service
-     * @param policyStore           discount policy compliance service
-     * @param approvalEngine        approval workflow service
-     * @param landedCostService     regional cost adjustment service
-     * @param floorPriceService     margin floor protection service
-     * @param strategies            list of discount strategies to apply (order matters)
-     * @param maxStackableDiscounts maximum number of discounts that can be stacked
-     */
     public DiscountRulesEngine(
             IPriceStore priceStore,
             IDiscountPolicyService policyStore,
@@ -148,7 +133,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
             contractedBase,
             currentPrice,
             appliedDiscounts.toArray(new String[0]),
-            true // isApproved = true for now; overrides would set this to false initially
+            true
         );
     }
 

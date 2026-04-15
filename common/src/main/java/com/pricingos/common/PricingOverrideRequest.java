@@ -1,8 +1,5 @@
 package com.pricingos.common;
 
-/**
- * Minimal request payload for pricing override submission.
- */
 public record PricingOverrideRequest(
     String requestedBy,
     ApprovalRequestType requestType,

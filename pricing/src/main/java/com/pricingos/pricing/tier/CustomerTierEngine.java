@@ -11,11 +11,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Customer tier service implementation.
- * Behavioral pattern: delegates tier rules to a TierEvaluationStrategy.
- * SOLID DIP/OCP: depends on strategy abstraction and can extend rules without modifying this class.
- */
 public class CustomerTierEngine implements ICustomerTierService {
     private static final long EXTERNAL_FETCH_TIMEOUT_SECONDS = 2L;
     private final IOrderService orderService;

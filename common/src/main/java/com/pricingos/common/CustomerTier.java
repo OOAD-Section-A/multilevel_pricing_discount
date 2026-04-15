@@ -1,9 +1,5 @@
 package com.pricingos.common;
 
-/**
- * Customer tiers and their default discount rates.
- * Information Expert: each tier owns its own discount value.
- */
 public enum CustomerTier {
     STANDARD(0.0),
     SILVER(0.05),

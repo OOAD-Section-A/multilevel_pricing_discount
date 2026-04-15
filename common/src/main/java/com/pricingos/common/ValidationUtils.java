@@ -2,13 +2,10 @@ package com.pricingos.common;
 
 import java.util.Objects;
 
-/**
- * Shared validation helpers to avoid duplicate guard clauses across modules.
- */
 public final class ValidationUtils {
 
     private ValidationUtils() {
-        // utility class
+
     }
 
     public static String requireNonBlank(String value, String fieldName) {

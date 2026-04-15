@@ -1,8 +1,5 @@
 package com.pricingos.common;
 
-/**
- * Immutable order-line context consumed by the pricing rules engine.
- */
 public final class OrderLineItem {
 
     private final String skuId;

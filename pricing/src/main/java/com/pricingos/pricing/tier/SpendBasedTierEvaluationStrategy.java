@@ -3,9 +3,6 @@ package com.pricingos.pricing.tier;
 import com.pricingos.common.CustomerTier;
 import java.util.Objects;
 
-/**
- * Default strategy that calculates tier using annual spend thresholds.
- */
 public class SpendBasedTierEvaluationStrategy implements TierEvaluationStrategy {
 
     private static final double PLATINUM_MIN = 100000;

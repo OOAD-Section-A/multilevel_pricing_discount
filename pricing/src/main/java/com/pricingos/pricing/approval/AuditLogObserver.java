@@ -5,23 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Concrete implementation of {@link ApprovalEventObserver} that writes every
- * approval workflow event to an in-memory audit log.
- *
- * <p>Behavioural pattern (Observer): registered with {@link ApprovalWorkflowEngine}
- * to receive lifecycle events without the engine knowing about logging details.
- *
- * <p>This satisfies the audit_log_flag requirement from the Data Dictionary (Component 8)
- * and the "audit trail" output listed in the Component Table.
- *
- * <p>In production, the log entries would be persisted to a database table or
- * forwarded to a centralised logging service. The interface boundary means the
- * engine code does not change when the storage mechanism changes — SOLID OCP.
- */
 public class AuditLogObserver implements ApprovalEventObserver {
 
-    /** Immutable record of a single audit event. */
     public record AuditEntry(
         LocalDateTime timestamp,
         String approvalId,
@@ -82,10 +67,6 @@ public class AuditLogObserver implements ApprovalEventObserver {
         ));
     }
 
-    /**
-     * Returns an unmodifiable snapshot of the current audit log.
-     * Used by the Pricing Admin dashboard to display the audit trail.
-     */
     public List<AuditEntry> getAuditLog() {
         synchronized (log) {
             return Collections.unmodifiableList(new ArrayList<>(log));

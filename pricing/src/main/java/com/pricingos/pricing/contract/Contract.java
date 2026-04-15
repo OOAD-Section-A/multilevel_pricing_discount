@@ -11,13 +11,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * Contract aggregate that owns lifecycle transitions and SKU-specific contract pricing.
- * Creational pattern: Builder is used for safe construction.
- * GRASP Information Expert: this class keeps contract state and transition rules together.
- */
 public class Contract {
-    // Behavior is constrained through an explicit state transition map.
+
     private static final Map<ContractStatus, Set<ContractStatus>> ALLOWED_TRANSITIONS = buildAllowedTransitions();
 
     private final String contractId;

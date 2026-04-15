@@ -2,9 +2,6 @@ package com.pricingos.common;
 
 import java.util.Arrays;
 
-/**
- * Immutable pricing outcome for a single SKU line.
- */
 public final class PriceResult {
 
     private final String skuId;

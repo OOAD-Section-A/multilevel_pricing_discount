@@ -23,4 +23,10 @@ public interface IContractPricingService {
     void activate(String contractId);
     void renew(String contractId, LocalDate newEndDate);
     ContractStatus getStatus(String contractId);
+
+    /**
+     * Returns true when multiple active contracts with different prices exist
+     * for the same customer + SKU pair and date.
+     */
+    boolean hasContractConflict(String customerId, String skuId);
 }

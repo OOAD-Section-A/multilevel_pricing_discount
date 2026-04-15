@@ -2,9 +2,11 @@ package com.pricingos.pricing.promotion;
 
 import com.pricingos.common.IBundlePromotionService;
 import com.pricingos.common.ISkuCatalogService;
+import com.pricingos.common.ValidationUtils;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +34,7 @@ import java.util.stream.Collectors;
  */
 public class BundlePromotionManager implements IBundlePromotionService {
 
-    private final Map<String, BundledPromotion> promoById = new ConcurrentHashMap<>();
+    private final Map<String, BundlePromotion> promoById = new ConcurrentHashMap<>();
     private final AtomicInteger idCounter = new AtomicInteger();
     private final ISkuCatalogService skuCatalogService;
     private final Clock clock;
@@ -60,7 +62,7 @@ public class BundlePromotionManager implements IBundlePromotionService {
     public String createBundlePromotion(String name, List<String> bundleSkuIds,
                                         double discountPct,
                                         LocalDate startDate, LocalDate endDate) {
-        requireNonBlank(name, "name");
+        ValidationUtils.requireNonBlank(name, "name");
         Objects.requireNonNull(bundleSkuIds, "bundleSkuIds cannot be null");
         if (bundleSkuIds.isEmpty())
             throw new IllegalArgumentException("bundleSkuIds cannot be empty");
@@ -78,13 +80,14 @@ public class BundlePromotionManager implements IBundlePromotionService {
 
         String promoId = "BNDL-" + idCounter.incrementAndGet();
 
-        BundledPromotion promo = BundledPromotion.builder(promoId)
-            .name(name)
-            .bundleSkuIds(normalizedSkus)
-            .discountPct(discountPct)
-            .startDate(startDate)
-            .endDate(endDate)
-            .build();
+        BundlePromotion promo = new BundlePromotion(
+            promoId,
+            name,
+            normalizedSkus,
+            discountPct,
+            startDate,
+            endDate
+        );
 
         promoById.put(promoId, promo);
         return promoId;
@@ -106,7 +109,7 @@ public class BundlePromotionManager implements IBundlePromotionService {
         LocalDate today = LocalDate.now(clock);
         double best = 0.0;
 
-        for (BundledPromotion promo : promoById.values()) {
+        for (BundlePromotion promo : promoById.values()) {
             if (promo.isApplicableTo(cartSkuIds, today)) {
                 double discount = promo.computeDiscount(cartTotal);
                 if (discount > best) best = discount;
@@ -124,26 +127,94 @@ public class BundlePromotionManager implements IBundlePromotionService {
     @Override
     public List<String> getActiveBundlePromotions() {
         LocalDate today = LocalDate.now(clock);
+        promoById.values().forEach(promo -> {
+            if (promo.isExpiredOn(today)) {
+                promo.markExpired();
+            }
+        });
         return promoById.values().stream()
             .filter(p -> !p.isExpired())
             .filter(p -> !today.isBefore(p.getStartDate()) && !today.isAfter(p.getEndDate()))
-            .map(BundledPromotion::getPromoId)
+            .map(BundlePromotion::getPromoId)
             .sorted()
             .collect(Collectors.toList());
     }
 
-    // ── Package-private helpers for testing ──────────────────────────────────────
+    private static final class BundlePromotion {
+        private final String promoId;
+        private final Set<String> bundleSkuIds;
+        private final double discountPct;
+        private final LocalDate startDate;
+        private final LocalDate endDate;
+        private volatile boolean expired;
 
-    /** Returns the BundledPromotion object for a given promo ID (package-private for tests). */
-    BundledPromotion getPromotionById(String promoId) {
-        return promoById.get(promoId);
+        private BundlePromotion(String promoId,
+                                String name,
+                                Set<String> bundleSkuIds,
+                                double discountPct,
+                                LocalDate startDate,
+                                LocalDate endDate) {
+            this.promoId = ValidationUtils.requireNonBlank(promoId, "promoId");
+            ValidationUtils.requireNonBlank(name, "name");
+            Objects.requireNonNull(bundleSkuIds, "bundleSkuIds cannot be null");
+            if (bundleSkuIds.isEmpty()) {
+                throw new IllegalArgumentException("bundleSkuIds cannot be empty");
+            }
+            if (!Double.isFinite(discountPct) || discountPct <= 0 || discountPct > 100) {
+                throw new IllegalArgumentException("discountPct must be in (0, 100]");
+            }
+            this.startDate = Objects.requireNonNull(startDate, "startDate cannot be null");
+            this.endDate = Objects.requireNonNull(endDate, "endDate cannot be null");
+            if (endDate.isBefore(startDate)) {
+                throw new IllegalArgumentException("endDate cannot be before startDate");
+            }
+            this.bundleSkuIds = Collections.unmodifiableSet(new HashSet<>(bundleSkuIds));
+            this.discountPct = discountPct;
+            this.expired = false;
+        }
+
+        private String getPromoId() {
+            return promoId;
+        }
+
+        private LocalDate getStartDate() {
+            return startDate;
+        }
+
+        private LocalDate getEndDate() {
+            return endDate;
+        }
+
+        private boolean isExpired() {
+            return expired;
+        }
+
+        private boolean isApplicableTo(Iterable<String> cartSkuIds, LocalDate today) {
+            Objects.requireNonNull(cartSkuIds, "cartSkuIds cannot be null");
+            Objects.requireNonNull(today, "today cannot be null");
+            if (expired || today.isBefore(startDate) || today.isAfter(endDate)) {
+                return false;
+            }
+            Set<String> normalizedCart = new HashSet<>();
+            for (String sku : cartSkuIds) {
+                if (sku != null) {
+                    normalizedCart.add(sku.trim());
+                }
+            }
+            return normalizedCart.containsAll(bundleSkuIds);
+        }
+
+        private double computeDiscount(double cartTotal) {
+            return cartTotal * (discountPct / 100.0);
+        }
+
+        private void markExpired() {
+            this.expired = true;
+        }
+
+        private boolean isExpiredOn(LocalDate today) {
+            return today.isAfter(endDate);
+        }
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────────────────
-
-    private static String requireNonBlank(String v, String field) {
-        Objects.requireNonNull(v, field + " cannot be null");
-        if (v.trim().isEmpty()) throw new IllegalArgumentException(field + " cannot be blank");
-        return v;
-    }
 }

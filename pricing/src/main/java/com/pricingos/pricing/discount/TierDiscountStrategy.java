@@ -2,6 +2,7 @@ package com.pricingos.pricing.discount;
 
 import com.pricingos.common.CustomerTier;
 import com.pricingos.common.ICustomerTierService;
+import com.pricingos.common.OrderLineItem;
 
 import java.util.Objects;
 

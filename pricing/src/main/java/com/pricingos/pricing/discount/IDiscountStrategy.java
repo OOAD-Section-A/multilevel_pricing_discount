@@ -1,5 +1,7 @@
 package com.pricingos.pricing.discount;
 
+import com.pricingos.common.OrderLineItem;
+
 /**
  * Strategy interface for applying a specific type of discount to an order line item.
  * Different discount types (tier, volume, promo code) implement this contract.

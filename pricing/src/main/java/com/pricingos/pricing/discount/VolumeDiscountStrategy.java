@@ -1,5 +1,6 @@
 package com.pricingos.pricing.discount;
 
+import com.pricingos.common.OrderLineItem;
 import com.pricingos.common.IVolumeDiscountService;
 
 import java.util.Objects;

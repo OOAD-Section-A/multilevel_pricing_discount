@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
 public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
 
     /** Thread-safe accumulator of all decision records. */
-    private final List<ProfitabilityRecord> records = new CopyOnWriteArrayList<>();
+    private final List<ProfitabilityEntry> records = new CopyOnWriteArrayList<>();
 
     /** Clock for deterministic timestamps in tests. */
     private final Clock clock;
@@ -62,7 +62,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
      */
     @Override
     public void onRequestApproved(ApprovalRequest request) {
-        records.add(new ProfitabilityRecord(
+        records.add(new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
@@ -77,7 +77,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
      */
     @Override
     public void onRequestRejected(ApprovalRequest request) {
-        records.add(new ProfitabilityRecord(
+        records.add(new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
@@ -101,7 +101,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
     public double getApprovedRevenueDelta() {
         return records.stream()
             .filter(r -> r.finalStatus() == ApprovalStatus.APPROVED)
-            .mapToDouble(ProfitabilityRecord::discountAmount)
+            .mapToDouble(ProfitabilityEntry::discountAmount)
             .sum();
     }
 
@@ -114,7 +114,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
     public double getRejectedSavings() {
         return records.stream()
             .filter(r -> r.finalStatus() == ApprovalStatus.REJECTED)
-            .mapToDouble(ProfitabilityRecord::discountAmount)
+            .mapToDouble(ProfitabilityEntry::discountAmount)
             .sum();
     }
 
@@ -129,8 +129,8 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
     public Map<ApprovalRequestType, DoubleSummaryStatistics> getBreakdownByType() {
         return records.stream().collect(
             Collectors.groupingBy(
-                ProfitabilityRecord::requestType,
-                Collectors.summarizingDouble(ProfitabilityRecord::discountAmount)
+                ProfitabilityEntry::requestType,
+                Collectors.summarizingDouble(ProfitabilityEntry::discountAmount)
             )
         );
     }
@@ -150,7 +150,15 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
      *
      * @return unmodifiable list of profitability records
      */
-    public List<ProfitabilityRecord> getAllRecords() {
+    public List<ProfitabilityEntry> getAllRecords() {
         return Collections.unmodifiableList(new ArrayList<>(records));
     }
+
+    public record ProfitabilityEntry(
+        String approvalId,
+        ApprovalRequestType requestType,
+        double discountAmount,
+        ApprovalStatus finalStatus,
+        LocalDateTime recordedAt
+    ) {}
 }

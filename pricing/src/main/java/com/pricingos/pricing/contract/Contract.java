@@ -1,6 +1,7 @@
 package com.pricingos.pricing.contract;
 
 import com.pricingos.common.ContractStatus;
+import com.pricingos.common.ValidationUtils;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -29,8 +30,8 @@ public class Contract {
     public Contract(String contractId, String customerId,
                     LocalDate startDate, LocalDate endDate,
                     Map<String, Double> skuPrices) {
-        this.contractId = requireId(contractId, "contractId");
-        this.customerId = requireId(customerId, "customerId");
+        this.contractId = ValidationUtils.requireNonBlank(contractId, "contractId");
+        this.customerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         this.startDate = Objects.requireNonNull(startDate, "startDate cannot be null");
         this.endDate = Objects.requireNonNull(endDate, "endDate cannot be null");
         if (endDate.isBefore(startDate)) {
@@ -85,7 +86,7 @@ public class Contract {
     }
 
     public Double getPrice(String skuId) {
-        return skuPrices.get(requireId(skuId, "skuId"));
+        return skuPrices.get(ValidationUtils.requireNonBlank(skuId, "skuId"));
     }
 
     public boolean isActiveOn(LocalDate date) {
@@ -150,19 +151,10 @@ public class Contract {
         return Collections.unmodifiableMap(transitions);
     }
 
-    private static String requireId(String value, String fieldName) {
-        Objects.requireNonNull(value, fieldName + " cannot be null");
-        String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " cannot be blank");
-        }
-        return normalized;
-    }
-
     private static Map<String, Double> validateSkuPrices(Map<String, Double> inputPrices) {
         Map<String, Double> validatedPrices = new HashMap<>();
         for (Map.Entry<String, Double> entry : inputPrices.entrySet()) {
-            String skuId = requireId(entry.getKey(), "skuId");
+            String skuId = ValidationUtils.requireNonBlank(entry.getKey(), "skuId");
             Double price = Objects.requireNonNull(entry.getValue(), "price cannot be null for skuId " + skuId);
             if (!Double.isFinite(price) || price < 0.0) {
                 throw new IllegalArgumentException("price must be a non-negative finite number for skuId " + skuId);
@@ -180,8 +172,8 @@ public class Contract {
         private final Map<String, Double> skuPrices = new HashMap<>();
 
         private Builder(String contractId, String customerId) {
-            this.contractId = requireId(contractId, "contractId");
-            this.customerId = requireId(customerId, "customerId");
+            this.contractId = ValidationUtils.requireNonBlank(contractId, "contractId");
+            this.customerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         }
 
         public Builder startDate(LocalDate startDate) {
@@ -195,7 +187,7 @@ public class Contract {
         }
 
         public Builder skuPrice(String skuId, double price) {
-            String normalizedSkuId = requireId(skuId, "skuId");
+            String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
             if (!Double.isFinite(price) || price < 0.0) {
                 throw new IllegalArgumentException("price must be a non-negative finite number");
             }

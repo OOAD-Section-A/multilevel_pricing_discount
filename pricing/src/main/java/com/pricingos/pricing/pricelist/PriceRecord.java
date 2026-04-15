@@ -1,5 +1,6 @@
 package com.pricingos.pricing.pricelist;
 
+import com.pricingos.common.ValidationUtils;
 import java.util.Date;
 import java.util.Objects;
 
@@ -57,20 +58,18 @@ public final class PriceRecord {
             Date effectiveFrom,
             Date effectiveTo,
             Status status) {
-        this.priceId = requireText(priceId, "priceId");
-        this.skuId = requireText(skuId, "skuId");
-        this.regionCode = requireText(regionCode, "regionCode");
-        this.channel = requireText(channel, "channel");
-        this.priceType = requireText(priceType, "priceType");
-        if (!Double.isFinite(basePrice) || basePrice <= 0.0) {
-            throw new IllegalArgumentException("basePrice must be a positive finite number");
-        }
+        this.priceId = ValidationUtils.requireNonBlank(priceId, "priceId");
+        this.skuId = ValidationUtils.requireNonBlank(skuId, "skuId");
+        this.regionCode = ValidationUtils.requireNonBlank(regionCode, "regionCode");
+        this.channel = ValidationUtils.requireNonBlank(channel, "channel");
+        this.priceType = ValidationUtils.requireNonBlank(priceType, "priceType");
+        ValidationUtils.requireFinitePositive(basePrice, "basePrice");
         if (!Double.isFinite(priceFloor) || priceFloor <= 0.0 || priceFloor >= basePrice) {
             throw new IllegalArgumentException("priceFloor must be positive and strictly lower than basePrice");
         }
         this.basePrice = basePrice;
         this.priceFloor = priceFloor;
-        this.currencyCode = requireText(currencyCode, "currencyCode");
+        this.currencyCode = ValidationUtils.requireNonBlank(currencyCode, "currencyCode");
         this.effectiveFrom = new Date(Objects.requireNonNull(effectiveFrom, "effectiveFrom cannot be null").getTime());
         this.effectiveTo = effectiveTo == null ? null : new Date(effectiveTo.getTime());
         this.status = Objects.requireNonNull(status, "status cannot be null");
@@ -197,12 +196,4 @@ public final class PriceRecord {
                 newStatus);
     }
 
-    private static String requireText(String value, String field) {
-        Objects.requireNonNull(value, field + " cannot be null");
-        String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(field + " cannot be blank");
-        }
-        return normalized;
-    }
 }

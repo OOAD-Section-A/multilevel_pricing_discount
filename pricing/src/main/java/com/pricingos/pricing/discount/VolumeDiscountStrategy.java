@@ -45,6 +45,9 @@ public class VolumeDiscountStrategy implements IDiscountStrategy {
      */
     @Override
     public double applyDiscount(double currentPrice, OrderLineItem item, String customerId) {
+        Objects.requireNonNull(item, "item cannot be null");
+        Objects.requireNonNull(customerId, "customerId cannot be null");
+
         if (!Double.isFinite(currentPrice) || currentPrice < 0)
             throw new IllegalArgumentException("currentPrice must be a non-negative finite number");
 

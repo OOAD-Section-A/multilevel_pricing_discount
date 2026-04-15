@@ -1,0 +1,75 @@
+package com.pricingos.pricing.discount;
+
+import com.pricingos.common.IPromotionService;
+import com.pricingos.pricing.promotion.InvalidPromoCodeException;
+
+import java.util.Objects;
+
+/**
+ * Discount strategy that applies promotion/coupon code discounts.
+ * Implements IDiscountStrategy.
+ *
+ * <p>Handles coupon validation and discount application. Gracefully handles
+ * InvalidPromoCodeException by returning the current price unchanged.
+ */
+public class PromoCodeStrategy implements IDiscountStrategy {
+
+    private final IPromotionService promoService;
+
+    /**
+     * Constructs the strategy with a promotion service dependency.
+     *
+     * @param promoService service for managing and validating promotions
+     */
+    public PromoCodeStrategy(IPromotionService promoService) {
+        this.promoService = Objects.requireNonNull(promoService, "promoService cannot be null");
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Returns true if the item has a non-blank promo code.
+     */
+    @Override
+    public boolean isEligible(OrderLineItem item, String customerId) {
+        Objects.requireNonNull(item, "item cannot be null");
+        Objects.requireNonNull(customerId, "customerId cannot be null");
+
+        String promoCode = item.getPromoCode();
+        return promoCode != null && !promoCode.trim().isEmpty();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Validates and applies the promo code. If the code is invalid or expired,
+     * catches InvalidPromoCodeException and returns currentPrice unchanged.
+     */
+    @Override
+    public double applyDiscount(double currentPrice, OrderLineItem item, String customerId) {
+        if (!Double.isFinite(currentPrice) || currentPrice < 0)
+            throw new IllegalArgumentException("currentPrice must be a non-negative finite number");
+
+        try {
+            // validateAndGetDiscount returns the discount amount (not the final price)
+            double discountAmount = promoService.validateAndGetDiscount(
+                item.getPromoCode(),
+                item.getSkuId(),
+                currentPrice
+            );
+            // Apply the discount: subtract discount amount from current price
+            return Math.max(0, currentPrice - discountAmount);
+        } catch (InvalidPromoCodeException e) {
+            // Promo code is invalid/expired/inapplicable: no discount applied
+            return currentPrice;
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String getStrategyName() {
+        return "PROMO_CODE";
+    }
+}

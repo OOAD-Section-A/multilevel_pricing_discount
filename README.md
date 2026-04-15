@@ -1,36 +1,49 @@
 # SCMS Pricing Subsystem
 
-## Component 1 & 3 — Implementation Notes
+Implementation of the Multi-level Pricing & Discount Management subsystem.
 
-- **Files created (Component 1):**
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/PriceListManager.java`
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/PriceRecord.java`
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/IPriceStore.java`
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/InMemoryPriceStore.java`
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/IPriceUpdateListener.java`
-  - `pricing/src/main/java/com/pricingos/pricing/pricelist/PriceAuditLogger.java`
-- **Files created (Component 3):**
-  - `pricing/src/main/java/com/pricingos/pricing/baseprice/IBasePriceConfig.java`
-  - `pricing/src/main/java/com/pricingos/pricing/baseprice/BasePriceConfig.java`
-  - `pricing/src/main/java/com/pricingos/pricing/baseprice/BasePriceRecord.java`
-- **Exception ownership note:**
-  - Custom exception class definitions are intentionally not included in this module.
-  - Components 1 and 3 only declare and throw exception types; concrete exception classes are expected from the dedicated exception subsystem on the classpath.
+## Current Scope
 
-- **Interfaces reused vs. new:**
-  - Reused existing repository contracts and DTOs by avoiding redefinition of shared `common` module types (`InvoiceLineItem`, `VolumeTierRule`, `IPricingFacade`, and related existing contracts).
-  - Created new interfaces required for this scope: `IBasePriceConfig`, `IPriceStore`, `IPriceUpdateListener`.
+- Implemented components: 1-8
+- Excluded by decision: component 9 (Invoice & Quote Price Generator)
+- Exception foundation dependency is packaged at `lib/scm-exception-foundation.jar`
 
-- **Design patterns applied:**
-  - **Builder:** `BasePriceRecord.Builder` constructs immutable configuration records.
-  - **Facade:** `PriceListManager` provides a single API for active lookup, history retrieval, cache refresh, and update/versioning.
-  - **Observer:** `PriceListManager` notifies `IPriceUpdateListener` implementations on every `updatePrice`; default listener is `PriceAuditLogger`.
+## Module Layout
 
-- **SOLID principles applied:**
-  - **SRP:** `BasePriceConfig` only validates/calculates pricing configuration; `PriceListManager` handles retrieval/versioning.
-  - **OCP:** `IBasePriceConfig` supports introducing alternate pricing configuration strategies without changing existing clients.
-  - **DIP:** `PriceListManager` depends on `IPriceStore`, not directly on concrete map storage.
+- `common/`
+  - Shared contracts, enums, and DTOs
+  - Key pricing DTOs moved here: `OrderLineItem`, `PriceResult`, `PricingOverrideRequest`
+  - Shared validation helper: `ValidationUtils`
+- `pricing/`
+  - Pricing subsystem implementation (engines, managers, domain objects)
 
-- **GRASP principles applied:**
-  - **Information Expert:** `BasePriceConfig` computes margin/base/floor from cost inputs; `PriceListManager` owns record lookup/versioning behavior.
-  - **Controller:** `PriceListManager` acts as the primary entry point for price lookup requests.
+## Build
+
+- Root Maven multi-module build:
+  - `pom.xml`
+  - `common/pom.xml`
+  - `pricing/pom.xml`
+- Run all tests:
+
+```bash
+mvn test
+```
+
+## Architecture Notes
+
+- Core engine contracts are interface-driven (SOLID DIP):
+  - `IDiscountRulesEngine`
+  - `IDiscountPolicyService`
+  - `IContractPricingService`
+  - `ICustomerTierService`
+  - `IApprovalWorkflowService`
+- Discount extensibility preserved through strategy interface:
+  - `IDiscountStrategy`
+  - Implementations: `VolumeDiscountStrategy`, `TierDiscountStrategy`, `PromoCodeStrategy`
+
+
+## Exception Foundation Jar
+
+Use this artifact on classpath:
+
+- `lib/scm-exception-foundation.jar

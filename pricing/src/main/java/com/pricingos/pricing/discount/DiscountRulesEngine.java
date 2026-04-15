@@ -23,7 +23,7 @@ import java.util.Objects;
  */
 public class DiscountRulesEngine implements IDiscountRulesEngine {
 
-    private final IPriceStore priceStore;
+    private final com.pricingos.pricing.pricelist.IPriceStore priceStore;
     private final ICustomerTierService tierService;
     private final IDiscountPolicyService policyStore;
     private final IPromotionService promoManager;
@@ -50,7 +50,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
      * @param maxStackableDiscounts maximum number of discounts that can be stacked (default: 3)
      */
     public DiscountRulesEngine(
-            IPriceStore priceStore,
+            com.pricingos.pricing.pricelist.IPriceStore priceStore,
             ICustomerTierService tierService,
             IDiscountPolicyService policyStore,
             IPromotionService promoManager,

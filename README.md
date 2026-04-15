@@ -46,4 +46,4 @@ mvn test
 
 Use this artifact on classpath:
 
-- `lib/scm-exception-foundation.jar
+- `lib/scm-exception-foundation.jar`

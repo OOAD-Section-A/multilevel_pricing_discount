@@ -217,19 +217,19 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     private double fetchBasePrice(OrderLineItem item) {
         String skuId = item.getSkuId();
         String regionCode = item.getRegionCode();
+        String channel = item.getChannel();
 
-        // Attempt to fetch from price store (region-specific lookup)
-        // Note: The actual implementation depends on PriceStore's API.
-        // This is a simplified version using a reasonable convention.
+        PriceRecord priceRecord = priceStore.findActive(skuId, regionCode, channel);
+        if (priceRecord == null) {
+            throw new IllegalArgumentException(
+                "BASE_PRICE_NOT_FOUND: SKU " + skuId + " in region " + regionCode + " for channel " + channel
+            );
+        }
 
-        // For now, we assume a placeholder price; in a real implementation,
-        // this would call priceStore.findActive(...) and resolve the price.
-        // Placeholder logic:
-        double price = 100.0; // Default for testing
-
+        double price = priceRecord.getBasePrice();
         if (price <= 0) {
             throw new IllegalArgumentException(
-                "BASE_PRICE_NOT_FOUND: SKU " + skuId + " in region " + regionCode
+                "BASE_PRICE_NOT_FOUND: SKU " + skuId + " in region " + regionCode + " for channel " + channel
             );
         }
         return price;

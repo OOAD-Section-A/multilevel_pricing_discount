@@ -87,12 +87,26 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
             }
         }
 
-        // If there are active EXCLUSIVE policies and multiple discounts are applied, it's a violation
-        if (!exclusivePolicies.isEmpty() && appliedDiscounts.length > 1) {
-            return false; // Violation: EXCLUSIVE policy + other discounts
+        if (exclusivePolicies.isEmpty()) {
+            return true; // No active EXCLUSIVE policies, so no strict restriction applies
         }
 
-        return true; // Compliant
+        if (appliedDiscounts.length == 0) {
+            return true; // No discounts applied, so no EXCLUSIVE policy is violated
+        }
+
+        if (appliedDiscounts.length > 1) {
+            return false; // Violation: EXCLUSIVE policy does not allow stacking
+        }
+
+        String appliedDiscount = appliedDiscounts[0];
+        for (DiscountPolicy exclusivePolicy : exclusivePolicies) {
+            if (exclusivePolicy.getPolicyName().equalsIgnoreCase(appliedDiscount)) {
+                return true; // The applied discount matches an active EXCLUSIVE policy
+            }
+        }
+
+        return false; // Violation: applied discount does not correspond to an active EXCLUSIVE policy
     }
 
     // ── Package-private helpers for testing ──────────────────────────────────────

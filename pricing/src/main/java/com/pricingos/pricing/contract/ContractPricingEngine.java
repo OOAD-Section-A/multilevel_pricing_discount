@@ -2,30 +2,28 @@ package com.pricingos.pricing.contract;
 
 import com.pricingos.common.ContractStatus;
 import com.pricingos.common.IContractPricingService;
+import com.pricingos.common.ValidationUtils;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Application service for contract-pricing use cases.
- * GRASP Controller: coordinates contract operations requested by clients.
- * SOLID SRP: focuses on contract pricing lifecycle without tier logic.
- */
 public class ContractPricingEngine implements IContractPricingService {
 
-    private final Map<String, Contract> contracts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Contract> contractsById = new ConcurrentHashMap<>();
     private final AtomicInteger counter = new AtomicInteger();
 
     @Override
     public String createContract(String customerId, LocalDate startDate,
                                  LocalDate endDate, Map<String, Double> skuPrices) {
-        String normalizedCustomerId = requireId(customerId, "customerId");
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         Objects.requireNonNull(startDate, "startDate cannot be null");
         Objects.requireNonNull(endDate, "endDate cannot be null");
         Objects.requireNonNull(skuPrices, "skuPrices cannot be null");
@@ -36,18 +34,18 @@ public class ContractPricingEngine implements IContractPricingService {
             .endDate(endDate)
             .skuPrices(skuPrices)
             .build();
-        contracts.put(id, contract);
+        contractsById.put(id, contract);
         return id;
     }
 
     @Override
     public Optional<Double> getContractPrice(String customerId, String skuId) {
-        String normalizedCustomerId = requireId(customerId, "customerId");
-        String normalizedSkuId = requireId(skuId, "skuId");
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
+        String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
         LocalDate today = LocalDate.now();
-        return contracts.values().stream()
+        return contractsById.values().stream()
             .filter(c -> c.getCustomerId().equals(normalizedCustomerId) && c.isActiveOn(today))
-                .max(Comparator.comparing(Contract::getStartDate).thenComparing(Contract::getContractId))
+            .max(Comparator.comparing(Contract::getStartDate).thenComparing(Contract::getContractId))
             .map(c -> c.getPrice(normalizedSkuId));
     }
 
@@ -72,6 +70,29 @@ public class ContractPricingEngine implements IContractPricingService {
         return get(contractId).getStatus();
     }
 
+    @Override
+    public boolean hasContractConflict(String customerId, String skuId) {
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
+        String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
+        LocalDate today = LocalDate.now();
+
+        Set<Double> activePrices = new HashSet<>();
+        for (Contract contract : contractsById.values()) {
+            if (!contract.getCustomerId().equals(normalizedCustomerId) || !contract.isActiveOn(today)) {
+                continue;
+            }
+            Double price = contract.getPrice(normalizedSkuId);
+            if (price == null) {
+                continue;
+            }
+            activePrices.add(price);
+            if (activePrices.size() > 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<String> getExpiringSoon(int days) {
         if (days < 0) {
             throw new IllegalArgumentException("days must be >= 0");
@@ -79,7 +100,7 @@ public class ContractPricingEngine implements IContractPricingService {
         LocalDate today = LocalDate.now();
         LocalDate cutoff = today.plusDays(days);
         List<String> result = new ArrayList<>();
-        for (Contract c : contracts.values()) {
+        for (Contract c : contractsById.values()) {
             if (c.markExpiringIfDue(today, cutoff)) {
                 result.add(c.getContractId());
             }
@@ -89,20 +110,11 @@ public class ContractPricingEngine implements IContractPricingService {
     }
 
     private Contract get(String id) {
-        String normalizedId = requireId(id, "contractId");
-        Contract c = contracts.get(normalizedId);
-        if (c == null) {
+        String normalizedId = ValidationUtils.requireNonBlank(id, "contractId");
+        Contract contract = contractsById.get(normalizedId);
+        if (contract == null) {
             throw new IllegalArgumentException("No contract: " + normalizedId);
         }
-        return c;
-    }
-
-    private static String requireId(String value, String fieldName) {
-        Objects.requireNonNull(value, fieldName + " cannot be null");
-        String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " cannot be blank");
-        }
-        return normalized;
+        return contract;
     }
 }

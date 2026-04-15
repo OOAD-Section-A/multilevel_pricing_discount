@@ -2,6 +2,7 @@ package com.pricingos.pricing.approval;
 
 import com.pricingos.common.ApprovalRequestType;
 import com.pricingos.common.ApprovalStatus;
+import com.pricingos.common.ValidationUtils;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -45,10 +46,10 @@ public class ApprovalRequest {
                     String requestedBy, String orderId,
                     double requestedDiscountAmt, String justificationText,
                     Clock clock) {
-        this.approvalId           = requireNonBlank(approvalId, "approvalId");
+        this.approvalId           = ValidationUtils.requireNonBlank(approvalId, "approvalId");
         this.requestType          = Objects.requireNonNull(requestType, "requestType cannot be null");
-        this.requestedBy          = requireNonBlank(requestedBy, "requestedBy");
-        this.orderId              = requireNonBlank(orderId, "orderId");
+        this.requestedBy          = ValidationUtils.requireNonBlank(requestedBy, "requestedBy");
+        this.orderId              = ValidationUtils.requireNonBlank(orderId, "orderId");
         this.requestedDiscountAmt = requireFiniteNonNeg(requestedDiscountAmt, "requestedDiscountAmt");
         this.justificationText    = Objects.requireNonNull(justificationText, "justificationText cannot be null");
         this.clock                = Objects.requireNonNull(clock, "clock cannot be null");
@@ -65,7 +66,7 @@ public class ApprovalRequest {
      */
     synchronized void markAsApproved(String approverId) {
         requirePendingOrEscalated("approve");
-        this.approvingManagerId = requireNonBlank(approverId, "approverId");
+        this.approvingManagerId = ValidationUtils.requireNonBlank(approverId, "approverId");
         this.status             = ApprovalStatus.APPROVED;
         this.approvalTimestamp  = LocalDateTime.now(clock);
         this.auditLogFlag       = true;
@@ -81,8 +82,8 @@ public class ApprovalRequest {
      */
     synchronized void markAsRejected(String approverId, String reason) {
         requirePendingOrEscalated("reject");
-        this.approvingManagerId = requireNonBlank(approverId, "approverId");
-        this.rejectionReason    = requireNonBlank(reason, "reason");
+        this.approvingManagerId = ValidationUtils.requireNonBlank(approverId, "approverId");
+        this.rejectionReason    = ValidationUtils.requireNonBlank(reason, "reason");
         this.status             = ApprovalStatus.REJECTED;
         this.approvalTimestamp  = LocalDateTime.now(clock);
         this.auditLogFlag       = true;
@@ -145,12 +146,6 @@ public class ApprovalRequest {
             throw new IllegalStateException(
                 "Cannot " + action + " a request with status: " + status);
         }
-    }
-
-    private static String requireNonBlank(String v, String field) {
-        Objects.requireNonNull(v, field + " cannot be null");
-        if (v.trim().isEmpty()) throw new IllegalArgumentException(field + " cannot be blank");
-        return v.trim();
     }
 
     private static double requireFiniteNonNeg(double v, String field) {

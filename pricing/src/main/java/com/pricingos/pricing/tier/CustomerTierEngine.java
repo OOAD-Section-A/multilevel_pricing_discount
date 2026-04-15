@@ -3,8 +3,12 @@ package com.pricingos.pricing.tier;
 import com.pricingos.common.CustomerTier;
 import com.pricingos.common.ICustomerTierService;
 import com.pricingos.common.IOrderService;
-import java.util.Map;
+import com.pricingos.common.ValidationUtils;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -13,10 +17,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * SOLID DIP/OCP: depends on strategy abstraction and can extend rules without modifying this class.
  */
 public class CustomerTierEngine implements ICustomerTierService {
+    private static final long EXTERNAL_FETCH_TIMEOUT_SECONDS = 2L;
     private final IOrderService orderService;
     private final TierEvaluationStrategy tierEvaluationStrategy;
-    private final Map<String, CustomerTier> tierStore = new ConcurrentHashMap<>();
-    private final Map<String, CustomerTier> manualOverrides = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CustomerTier> tierByCustomer = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CustomerTier> overrideByCustomer = new ConcurrentHashMap<>();
 
     public CustomerTierEngine(IOrderService orderService) {
         this(orderService, new SpendBasedTierEvaluationStrategy());
@@ -29,12 +34,13 @@ public class CustomerTierEngine implements ICustomerTierService {
 
     @Override
     public CustomerTier getTier(String customerId) {
-        String normalizedCustomerId = requireCustomerId(customerId);
-        CustomerTier overriddenTier = manualOverrides.get(normalizedCustomerId);
-        if (overriddenTier != null) {
-            return overriddenTier;
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
+        CustomerTier overridden = overrideByCustomer.get(normalizedCustomerId);
+        if (overridden != null) {
+            return overridden;
         }
-        return tierStore.getOrDefault(normalizedCustomerId, CustomerTier.STANDARD);
+        CustomerTier evaluated = tierByCustomer.get(normalizedCustomerId);
+        return evaluated == null ? CustomerTier.STANDARD : evaluated;
     }
 
     @Override
@@ -44,13 +50,33 @@ public class CustomerTierEngine implements ICustomerTierService {
 
     @Override
     public void evaluateTier(String customerId) {
-        String normalizedCustomerId = requireCustomerId(customerId);
-        if (manualOverrides.containsKey(normalizedCustomerId)) {
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
+        if (overrideByCustomer.containsKey(normalizedCustomerId)) {
             return;
         }
 
-        double annualSpend = orderService.getTotalSpendLastYear(normalizedCustomerId);
-        int annualOrderCount = orderService.getOrderCountLastYear(normalizedCustomerId);
+        if (normalizedCustomerId.startsWith("UNKNOWN")) {
+            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            return;
+        }
+
+        double annualSpend;
+        int annualOrderCount;
+        try {
+            annualSpend = CompletableFuture
+                .supplyAsync(() -> orderService.getTotalSpendLastYear(normalizedCustomerId))
+                .get(EXTERNAL_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            annualOrderCount = CompletableFuture
+                .supplyAsync(() -> orderService.getOrderCountLastYear(normalizedCustomerId))
+                .get(EXTERNAL_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            return;
+        } catch (ExecutionException | TimeoutException e) {
+            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            return;
+        }
 
         CustomerTier evaluatedTier = tierEvaluationStrategy.evaluate(
                 normalizedCustomerId,
@@ -58,26 +84,14 @@ public class CustomerTierEngine implements ICustomerTierService {
                 annualOrderCount
         );
 
-        tierStore.compute(normalizedCustomerId, (id, ignored) -> {
-            CustomerTier overriddenTier = manualOverrides.get(id);
-            return overriddenTier != null ? overriddenTier : evaluatedTier;
-        });
+        tierByCustomer.put(normalizedCustomerId, evaluatedTier);
     }
 
     @Override
     public void overrideTier(String customerId, CustomerTier tier) {
-        String normalizedCustomerId = requireCustomerId(customerId);
+        String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         Objects.requireNonNull(tier, "tier cannot be null");
-        manualOverrides.put(normalizedCustomerId, tier);
-        tierStore.put(normalizedCustomerId, tier);
-    }
-
-    private static String requireCustomerId(String customerId) {
-        Objects.requireNonNull(customerId, "customerId cannot be null");
-        String normalized = customerId.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("customerId cannot be blank");
-        }
-        return normalized;
+        overrideByCustomer.put(normalizedCustomerId, tier);
+        tierByCustomer.put(normalizedCustomerId, tier);
     }
 }

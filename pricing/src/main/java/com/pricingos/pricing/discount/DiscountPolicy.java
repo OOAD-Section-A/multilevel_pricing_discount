@@ -1,5 +1,6 @@
 package com.pricingos.pricing.discount;
 
+import com.pricingos.common.ValidationUtils;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
@@ -53,7 +54,7 @@ public final class DiscountPolicy {
         private boolean isActive = true;
 
         private Builder(String policyName) {
-            this.policyName = requireNonBlank(policyName, "policyName");
+            this.policyName = ValidationUtils.requireNonBlank(policyName, "policyName");
         }
 
         /**
@@ -76,7 +77,7 @@ public final class DiscountPolicy {
          * @return this builder
          */
         public Builder stackingRule(String rule) {
-            this.stackingRule = requireNonBlank(rule, "stackingRule");
+            this.stackingRule = ValidationUtils.requireNonBlank(rule, "stackingRule");
             return this;
         }
 
@@ -109,13 +110,6 @@ public final class DiscountPolicy {
          */
         public DiscountPolicy build() {
             return new DiscountPolicy(this);
-        }
-
-        private static String requireNonBlank(String v, String field) {
-            Objects.requireNonNull(v, field + " cannot be null");
-            if (v.trim().isEmpty())
-                throw new IllegalArgumentException(field + " cannot be blank");
-            return v.trim();
         }
     }
 

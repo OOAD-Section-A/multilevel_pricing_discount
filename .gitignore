@@ -1,0 +1,6 @@
+*.class
+target/
+out/
+.idea/
+.vscode/
+AGENTS.md

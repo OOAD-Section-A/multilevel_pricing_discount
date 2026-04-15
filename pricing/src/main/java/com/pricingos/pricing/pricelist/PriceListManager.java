@@ -1,6 +1,6 @@
 package com.pricingos.pricing.pricelist;
 
-import com.pricingos.pricing.PricingConstants;
+import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -11,16 +11,12 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Logger;
 
 /*
- * DESIGN PATTERNS USED:
- * - Structural: Facade — single clean API hiding versioning/storage complexity.
- * - Behavioural: Observer (IPriceUpdateListener) — notifies audit logger on every price change.
- * - SOLID DIP: Depends on IPriceStore interface, not concrete HashMap.
- * - GRASP Controller: Entry point for all price retrieval requests from other components.
- * - GRASP Information Expert: Owns price records; handles versioning.
+ * DESIGN NOTES:
+ * - Facade-style API for active lookup/history/versioning.
+ * - Depends on IPriceStore abstraction for storage.
  */
 
 /**
@@ -28,13 +24,10 @@ import java.util.logging.Logger;
  */
 public class PriceListManager {
 
-    public static final String DEFAULT_CURRENCY = PricingConstants.DEFAULT_CURRENCY;
-
     private static final Logger LOGGER = Logger.getLogger(PriceListManager.class.getName());
 
     private final IPriceStore priceStore;
     private final Map<String, PriceRecord> activePriceCache;
-    private final List<IPriceUpdateListener> listeners;
     private String activeRegion;
     private Date lastSyncTimestamp;
 
@@ -53,10 +46,8 @@ public class PriceListManager {
      */
     public PriceListManager(IPriceStore priceStore, String activeRegion) {
         this.priceStore = Objects.requireNonNull(priceStore, "priceStore cannot be null");
-        this.activeRegion = requireText(activeRegion, "activeRegion");
+        this.activeRegion = ValidationUtils.requireNonBlank(activeRegion, "activeRegion");
         this.activePriceCache = new ConcurrentHashMap<>();
-        this.listeners = new CopyOnWriteArrayList<>();
-        this.listeners.add(new PriceAuditLogger());
         this.lastSyncTimestamp = new Date();
         refreshPriceCache();
     }
@@ -71,9 +62,9 @@ public class PriceListManager {
      * @throws NoSuchElementException if no active record exists for key
      */
     public double getActivePrice(String skuId, String region, String channel) throws NoSuchElementException {
-        String normalizedSku = requireText(skuId, "skuId");
-        String normalizedRegion = requireText(region, "region");
-        String normalizedChannel = requireText(channel, "channel");
+        String normalizedSku = ValidationUtils.requireNonBlank(skuId, "skuId");
+        String normalizedRegion = ValidationUtils.requireNonBlank(region, "region");
+        String normalizedChannel = ValidationUtils.requireNonBlank(channel, "channel");
         String key = key(normalizedSku, normalizedRegion, normalizedChannel);
 
         PriceRecord cached = activePriceCache.get(key);
@@ -96,7 +87,7 @@ public class PriceListManager {
      * @return immutable array of versioned price records
      */
     public PriceRecord[] getHistoricalPrices(String skuId) {
-        String normalizedSku = requireText(skuId, "skuId");
+        String normalizedSku = ValidationUtils.requireNonBlank(skuId, "skuId");
         List<PriceRecord> sorted = new ArrayList<>(priceStore.findBySku(normalizedSku));
         sorted.sort(Comparator.comparing(PriceRecord::getEffectiveFrom).reversed());
         return sorted.toArray(new PriceRecord[0]);
@@ -143,21 +134,13 @@ public class PriceListManager {
                 PriceRecord.Status.ACTIVE);
         priceStore.save(persisted);
         activePriceCache.put(key, persisted);
-
-        // Observer notification keeps audit concerns decoupled from storage/versioning logic.
-        for (IPriceUpdateListener listener : listeners) {
-            listener.onPriceUpdated(persisted);
-        }
-    }
-
-    /**
-     * Registers a new observer that reacts to price updates.
-     *
-     * @param listener listener implementation; must be non-null
-     * @return no return value
-     */
-    public void registerListener(IPriceUpdateListener listener) {
-        listeners.add(Objects.requireNonNull(listener, "listener cannot be null"));
+        LOGGER.info(() -> "AUDIT price update: priceId=" + persisted.getPriceId()
+            + ", skuId=" + persisted.getSkuId()
+            + ", region=" + persisted.getRegionCode()
+            + ", channel=" + persisted.getChannel()
+            + ", basePrice=" + persisted.getBasePrice()
+            + ", floor=" + persisted.getPriceFloor()
+            + ", effectiveFrom=" + persisted.getEffectiveFrom());
     }
 
     /**
@@ -180,14 +163,5 @@ public class PriceListManager {
 
     private static String key(String skuId, String region, String channel) {
         return skuId + "|" + region + "|" + channel;
-    }
-
-    private static String requireText(String value, String field) {
-        Objects.requireNonNull(value, field + " cannot be null");
-        String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(field + " cannot be blank");
-        }
-        return normalized;
     }
 }

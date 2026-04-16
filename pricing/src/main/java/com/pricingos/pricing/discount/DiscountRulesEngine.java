@@ -123,7 +123,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         double floorPrice = floorPriceService.getEffectiveFloorPrice(item.getSkuId());
         if (currentPrice < floorPrice) {
             double calculatedPrice = currentPrice;
-            LOGGER.warning(() -> "PRICE_FLOOR_VIOLATION for SKU " + item.getSkuId()
+            LOGGER.warning(() -> "NEGATIVE_MARGIN_CALCULATION prevented for SKU " + item.getSkuId()
                 + ": calculated=" + calculatedPrice + ", floor=" + floorPrice + ". Capping to floor.");
             currentPrice = floorPrice;
         }
@@ -138,12 +138,14 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     }
 
     private double fetchBasePrice(OrderLineItem item) {
-        PriceRecord priceRecord = priceStore
-            .findActive(item.getSkuId(), item.getRegionCode(), item.getChannel())
-            .orElseThrow(() -> new IllegalArgumentException(
+        PriceRecord priceRecord = priceStore.findActive(item.getSkuId(), item.getRegionCode(), item.getChannel())
+            .orElse(null);
+        if (priceRecord == null) {
+            throw new IllegalArgumentException(
                 "BASE_PRICE_NOT_FOUND: SKU " + item.getSkuId()
                     + " in region " + item.getRegionCode()
-                    + " for channel " + item.getChannel()));
+                    + " for channel " + item.getChannel());
+        }
         return ValidationUtils.requireFinitePositive(priceRecord.getBasePrice(), "basePrice");
     }
 

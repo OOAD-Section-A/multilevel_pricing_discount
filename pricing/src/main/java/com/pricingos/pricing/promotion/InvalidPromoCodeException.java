@@ -2,6 +2,9 @@ package com.pricingos.pricing.promotion;
 
 public class InvalidPromoCodeException extends RuntimeException {
 
+    public static final int EXCEPTION_ID = 7;
+    public static final String EXCEPTION_NAME = "INVALID_PROMO_CODE";
+
     public enum Reason {
 
         NOT_FOUND,
@@ -31,7 +34,9 @@ public class InvalidPromoCodeException extends RuntimeException {
 
     private static String buildMessage(String code, Reason reason) {
         return String.format(
-            "Promo code [%s] is %s.",
+            "%s (%d): Promo code [%s] is %s.",
+            EXCEPTION_NAME,
+            EXCEPTION_ID,
             code,
             switch (reason) {
                 case NOT_FOUND      -> "invalid or does not exist";

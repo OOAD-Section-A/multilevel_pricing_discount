@@ -2,6 +2,7 @@ package com.pricingos.pricing.pricelist;
 
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
+import com.jackfruit.scm.database.model.PriceList;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -18,16 +20,32 @@ public class PriceListManager {
     private static final Logger LOGGER = Logger.getLogger(PriceListManager.class.getName());
 
     private final IPriceStore priceStore;
+    private final DbPriceReader dbPriceReader;
+    private final DbPricePublisher dbPricePublisher;
     private final Map<String, PriceRecord> activePriceCache;
     private String activeRegion;
     private Date lastSyncTimestamp;
 
     public PriceListManager() {
-        this(new InMemoryPriceStore(), "GLOBAL");
+        this(new InMemoryPriceStore(), "GLOBAL", new DbPriceReader(), new DbPricePublisher());
     }
 
     public PriceListManager(IPriceStore priceStore, String activeRegion) {
+        this(priceStore, activeRegion, new DbPriceReader(), new DbPricePublisher());
+    }
+
+    public PriceListManager(IPriceStore priceStore, String activeRegion, DbPricePublisher dbPricePublisher) {
+        this(priceStore, activeRegion, new DbPriceReader(), dbPricePublisher);
+    }
+
+    public PriceListManager(
+            IPriceStore priceStore,
+            String activeRegion,
+            DbPriceReader dbPriceReader,
+            DbPricePublisher dbPricePublisher) {
         this.priceStore = Objects.requireNonNull(priceStore, "priceStore cannot be null");
+        this.dbPriceReader = Objects.requireNonNull(dbPriceReader, "dbPriceReader cannot be null");
+        this.dbPricePublisher = Objects.requireNonNull(dbPricePublisher, "dbPricePublisher cannot be null");
         this.activeRegion = ValidationUtils.requireNonBlank(activeRegion, "activeRegion");
         this.activePriceCache = new ConcurrentHashMap<>();
         this.lastSyncTimestamp = new Date();
@@ -43,6 +61,11 @@ public class PriceListManager {
         PriceRecord cached = activePriceCache.get(key);
         if (cached != null && cached.getStatus() == PriceRecord.Status.ACTIVE) {
             return cached.getBasePrice();
+        }
+
+        Optional<PriceList> dbPrice = dbPriceReader.findActive(normalizedSku, normalizedRegion, normalizedChannel);
+        if (dbPrice.isPresent()) {
+            return dbPrice.get().getBasePrice().doubleValue();
         }
 
         PriceRecord activeRecord = priceStore.findActive(normalizedSku, normalizedRegion, normalizedChannel)
@@ -90,6 +113,11 @@ public class PriceListManager {
                 PriceRecord.Status.ACTIVE);
         priceStore.save(persisted);
         activePriceCache.put(key, persisted);
+        try {
+            dbPricePublisher.publish(record);
+        } catch (RuntimeException ex) {
+            LOGGER.warning(() -> "Database publish skipped for skuId=" + record.getSkuId() + ": " + ex.getMessage());
+        }
         LOGGER.info(() -> "AUDIT price update: priceId=" + persisted.getPriceId()
             + ", skuId=" + persisted.getSkuId()
             + ", region=" + persisted.getRegionCode()

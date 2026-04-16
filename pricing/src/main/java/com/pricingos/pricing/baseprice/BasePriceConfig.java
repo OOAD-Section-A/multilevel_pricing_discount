@@ -44,7 +44,7 @@ public class BasePriceConfig {
         double priceFloor = cost * PRICE_FLOOR_SAFETY_MARGIN;
         if (!(priceFloor < basePrice)) {
             throw new IllegalArgumentException(
-                    "Price floor [" + priceFloor + "] must be strictly less than base price ["
+                    "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + priceFloor + "] must be strictly less than base price ["
                             + basePrice + "] for SKU [" + normalizedSku + "].");
         }
         publish(normalizedSku, basePrice, priceFloor);
@@ -59,7 +59,7 @@ public class BasePriceConfig {
         double activeBasePrice = priceListManager.getActivePrice(normalizedSku, DEFAULT_REGION, DEFAULT_CHANNEL);
         if (!(floorPrice < activeBasePrice)) {
             throw new IllegalArgumentException(
-                    "Price floor [" + floorPrice + "] must be strictly less than base price ["
+                    "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + floorPrice + "] must be strictly less than base price ["
                             + activeBasePrice + "] for SKU [" + normalizedSku + "].");
         }
         publish(normalizedSku, activeBasePrice, floorPrice);

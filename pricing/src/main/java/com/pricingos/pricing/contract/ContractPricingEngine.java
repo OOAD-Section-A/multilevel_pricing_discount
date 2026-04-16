@@ -43,10 +43,23 @@ public class ContractPricingEngine implements IContractPricingService {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
         LocalDate today = LocalDate.now();
-        return contractsById.values().stream()
+        Optional<Double> active = contractsById.values().stream()
             .filter(c -> c.getCustomerId().equals(normalizedCustomerId) && c.isActiveOn(today))
             .max(Comparator.comparing(Contract::getStartDate).thenComparing(Contract::getContractId))
             .map(c -> c.getPrice(normalizedSkuId));
+
+        if (active.isPresent()) {
+            return active;
+        }
+
+        boolean hasExpiredMatch = contractsById.values().stream().anyMatch(c ->
+            c.getCustomerId().equals(normalizedCustomerId)
+                && c.getPrice(normalizedSkuId) != null
+                && c.getEndDate().isBefore(today));
+        if (hasExpiredMatch) {
+            // CONTRACT_EXPIRED_ALERT handled as fallback to standard pricing (non-blocking)
+        }
+        return Optional.empty();
     }
 
     @Override

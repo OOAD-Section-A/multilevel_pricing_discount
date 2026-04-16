@@ -28,6 +28,13 @@
             <systemPath>${project.basedir}/../lib/scm-exception-foundation.jar</systemPath>
         </dependency>
         <dependency>
+            <groupId>com.scm</groupId>
+            <artifactId>database-module</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/database-module-1.0.0-SNAPSHOT-standalone.jar</systemPath>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>

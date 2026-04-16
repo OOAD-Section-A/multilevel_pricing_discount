@@ -32,7 +32,7 @@ public class Contract {
         if (endDate.isBefore(startDate)) {
             throw new IllegalArgumentException("endDate cannot be before startDate");
         }
-        this.status = ContractStatus.DRAFT;
+        this.status = ContractStatus.PENDING;
         this.skuPrices = Collections.unmodifiableMap(validateSkuPrices(
             Objects.requireNonNull(skuPrices, "skuPrices cannot be null")
         ));
@@ -94,7 +94,7 @@ public class Contract {
     }
 
     public void submitForApproval() {
-        transitionTo(ContractStatus.PENDING_APPROVAL);
+        transitionTo(ContractStatus.PENDING);
     }
 
     public void activate() {
@@ -115,7 +115,7 @@ public class Contract {
                 return false;
             }
             if (status == ContractStatus.ACTIVE && !endDate.isAfter(cutoff)) {
-                transitionTo(ContractStatus.EXPIRING);
+                transitionTo(ContractStatus.PENDING);
                 return true;
             }
             return false;
@@ -138,10 +138,8 @@ public class Contract {
 
     private static Map<ContractStatus, Set<ContractStatus>> buildAllowedTransitions() {
         Map<ContractStatus, Set<ContractStatus>> transitions = new EnumMap<>(ContractStatus.class);
-        transitions.put(ContractStatus.DRAFT, EnumSet.of(ContractStatus.PENDING_APPROVAL));
-        transitions.put(ContractStatus.PENDING_APPROVAL, EnumSet.of(ContractStatus.ACTIVE));
-        transitions.put(ContractStatus.ACTIVE, EnumSet.of(ContractStatus.EXPIRING, ContractStatus.EXPIRED));
-        transitions.put(ContractStatus.EXPIRING, EnumSet.of(ContractStatus.ACTIVE, ContractStatus.EXPIRED));
+        transitions.put(ContractStatus.PENDING, EnumSet.of(ContractStatus.ACTIVE));
+        transitions.put(ContractStatus.ACTIVE, EnumSet.of(ContractStatus.PENDING, ContractStatus.EXPIRED));
         transitions.put(ContractStatus.EXPIRED, EnumSet.of(ContractStatus.ACTIVE));
         return Collections.unmodifiableMap(transitions);
     }

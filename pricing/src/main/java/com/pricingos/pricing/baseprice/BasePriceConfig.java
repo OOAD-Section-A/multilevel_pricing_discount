@@ -10,7 +10,7 @@ public class BasePriceConfig {
     public static final double PRICE_FLOOR_SAFETY_MARGIN = 1.05;
 
     private static final String DEFAULT_REGION = "GLOBAL";
-    private static final String DEFAULT_CHANNEL = "DIRECT";
+    private static final String DEFAULT_CHANNEL = "RETAIL";
 
     private final String adminUserId;
     private final double defaultMarkupPercentage;
@@ -98,7 +98,7 @@ public class BasePriceConfig {
                 .skuId(skuId)
                 .regionCode(DEFAULT_REGION)
                 .channel(DEFAULT_CHANNEL)
-                .priceType("BASE")
+                .priceType("RETAIL")
                 .basePrice(basePrice)
                 .priceFloor(floorPrice)
                 .currencyCode(systemCurrency)

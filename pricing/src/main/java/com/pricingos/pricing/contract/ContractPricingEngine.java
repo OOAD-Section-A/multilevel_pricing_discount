@@ -3,6 +3,10 @@ package com.pricingos.pricing.contract;
 import com.pricingos.common.ContractStatus;
 import com.pricingos.common.IContractPricingService;
 import com.pricingos.common.ValidationUtils;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -57,7 +61,23 @@ public class ContractPricingEngine implements IContractPricingService {
                 && c.getPrice(normalizedSkuId) != null
                 && c.getEndDate().isBefore(today));
         if (hasExpiredMatch) {
+<<<<<<< HEAD
             // CONTRACT_EXPIRED_ALERT handled as fallback to standard pricing (non-blocking)
+=======
+            // Find the expired contract to get its ID and expiry date
+            contractsById.values().stream()
+                .filter(c -> c.getCustomerId().equals(normalizedCustomerId)
+                    && c.getPrice(normalizedSkuId) != null
+                    && c.getEndDate().isBefore(today))
+                .findFirst()
+                .ifPresent(c -> {
+                    try {
+                        MultiLevelPricingSubsystem.INSTANCE.onContractExpiredAlert(c.getContractId(), c.getEndDate().toString());
+                    } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                        // Database not available during tests
+                    }
+                });
+>>>>>>> 7c96f5e (exception handling)
         }
         return Optional.empty();
     }

@@ -4,6 +4,10 @@ import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
 import com.jackfruit.scm.database.facade.subsystem.PricingSubsystemFacade;
 import com.jackfruit.scm.database.model.PriceList;
 import com.jackfruit.scm.database.model.PricingModels;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -330,12 +334,41 @@ public class PricingSubsystemGUI extends JFrame {
                 String name = nameField.getText();
                 String couponCode = codeField.getText();
                 String discountType = (String) typeCombo.getSelectedItem();
+<<<<<<< HEAD
                 double discountValue = Double.parseDouble(valueField.getText());
                 List<String> eligibleSkus = List.of(skuField.getText().split(","));
                 double minCartValue = Double.parseDouble(minCartField.getText());
                 int maxUses = Integer.parseInt(maxUsesField.getText());
                 java.time.LocalDate startDate = java.time.LocalDate.parse(startDateField.getText());
                 java.time.LocalDate endDate = java.time.LocalDate.parse(endDateField.getText());
+=======
+                double discountValue;
+                List<String> eligibleSkus;
+                double minCartValue;
+                int maxUses;
+                java.time.LocalDate startDate;
+                java.time.LocalDate endDate;
+
+                try {
+                    discountValue = Double.parseDouble(valueField.getText());
+                    minCartValue = Double.parseDouble(minCartField.getText());
+                    maxUses = Integer.parseInt(maxUsesField.getText());
+                } catch (NumberFormatException nfe) {
+                    try {
+                        MultiLevelPricingSubsystem.INSTANCE.onInvalidPromoCode(couponCode);
+                    } catch (ExceptionInInitializerError | NoClassDefFoundError err) {
+                        // Database not available during tests
+                    }
+                    log("ERROR: Invalid numeric input for promotion creation");
+                    JOptionPane.showMessageDialog(this, "Error: Invalid numeric input. Please enter valid numbers for discount value, min cart value, and max uses.",
+                        "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                eligibleSkus = List.of(skuField.getText().split(","));
+                startDate = java.time.LocalDate.parse(startDateField.getText());
+                endDate = java.time.LocalDate.parse(endDateField.getText());
+>>>>>>> 7c96f5e (exception handling)
 
                 log("Creating promotion: " + name + " with code: " + couponCode + " for SKUs: " + eligibleSkus);
                 log("Dates: " + startDate + " to " + endDate + ", Min cart: " + minCartValue);

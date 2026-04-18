@@ -12,6 +12,10 @@ import com.pricingos.common.PricingOverrideRequest;
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.pricelist.IPriceStore;
 import com.pricingos.pricing.pricelist.PriceRecord;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -83,6 +87,14 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     private PriceResult calculatePriceForLineItem(OrderLineItem item, String customerId) {
         double basePrice = fetchBasePrice(item);
         if (contractPricingService.hasContractConflict(customerId, item.getSkuId())) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onDuplicateContractConflict(customerId, item.getSkuId());
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalStateException(
                 "DUPLICATE_CONTRACT_CONFLICT: Multiple active contracts with conflicting prices for customer "
                     + customerId + " and SKU " + item.getSkuId());
@@ -112,6 +124,14 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         }
 
         if (!appliedDiscounts.isEmpty() && !policyStore.validateCompliance(appliedDiscounts.toArray(new String[0]))) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onPolicyStackingConflict(item.getSkuId(), String.join(",", appliedDiscounts));
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             currentPrice = selectBestSingleDiscount(item, customerId, adjustedPrice, appliedDiscounts);
         }
 
@@ -123,6 +143,15 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         double floorPrice = floorPriceService.getEffectiveFloorPrice(item.getSkuId());
         if (currentPrice < floorPrice) {
             double calculatedPrice = currentPrice;
+<<<<<<< HEAD
+=======
+            double margin = (currentPrice - floorPrice) / currentPrice;
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onNegativeMarginCalculation(item.getSkuId(), margin);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             LOGGER.warning(() -> "NEGATIVE_MARGIN_CALCULATION prevented for SKU " + item.getSkuId()
                 + ": calculated=" + calculatedPrice + ", floor=" + floorPrice + ". Capping to floor.");
             currentPrice = floorPrice;
@@ -141,6 +170,14 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         PriceRecord priceRecord = priceStore.findActive(item.getSkuId(), item.getRegionCode(), item.getChannel())
             .orElse(null);
         if (priceRecord == null) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onBasePriceNotFound(item.getSkuId());
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalArgumentException(
                 "BASE_PRICE_NOT_FOUND: SKU " + item.getSkuId()
                     + " in region " + item.getRegionCode()

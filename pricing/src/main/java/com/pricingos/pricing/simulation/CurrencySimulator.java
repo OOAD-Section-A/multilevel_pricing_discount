@@ -2,6 +2,10 @@ package com.pricingos.pricing.simulation;
 
 import com.pricingos.common.IExchangeRateService;
 import com.pricingos.common.ValidationUtils;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -30,6 +34,14 @@ public class CurrencySimulator implements IExchangeRateService {
         Double fromToInr = ratesToInr.get(from);
         Double toToInr = ratesToInr.get(to);
         if (fromToInr == null || toToInr == null) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onInvalidPromoCode(from + " -> " + to);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalArgumentException("Unsupported currency conversion: " + from + " -> " + to);
         }
         return fromToInr / toToInr;

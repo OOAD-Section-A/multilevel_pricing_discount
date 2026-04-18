@@ -2,6 +2,10 @@ package com.pricingos.pricing.baseprice;
 
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.pricelist.PriceListManager;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
@@ -43,6 +47,14 @@ public class BasePriceConfig {
         double basePrice = cost / (1.0 - margin);
         double priceFloor = cost * PRICE_FLOOR_SAFETY_MARGIN;
         if (!(priceFloor < basePrice)) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onPriceFloorConfigError(normalizedSku);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalArgumentException(
                     "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + priceFloor + "] must be strictly less than base price ["
                             + basePrice + "] for SKU [" + normalizedSku + "].");
@@ -58,6 +70,14 @@ public class BasePriceConfig {
 
         double activeBasePrice = priceListManager.getActivePrice(normalizedSku, DEFAULT_REGION, DEFAULT_CHANNEL);
         if (!(floorPrice < activeBasePrice)) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onPriceFloorConfigError(normalizedSku);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalArgumentException(
                     "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + floorPrice + "] must be strictly less than base price ["
                             + activeBasePrice + "] for SKU [" + normalizedSku + "].");
@@ -74,6 +94,14 @@ public class BasePriceConfig {
         }
         double margin = (price - cost) / price;
         if (margin < 0.0) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onNegativeMarginCalculation("unknown", margin);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             throw new IllegalArgumentException(
                     "NEGATIVE_MARGIN_CALCULATION: Base price configuration results in a negative profit margin. "
                             + "COGS=[" + cost + "], Price=[" + price + "].");

@@ -29,6 +29,16 @@
         </dependency>
         <dependency>
             <groupId>com.scm</groupId>
+<<<<<<< HEAD
+=======
+            <artifactId>handler-exception</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/handler-exception.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.scm</groupId>
+>>>>>>> 7c96f5e (exception handling)
             <artifactId>database-module</artifactId>
             <version>1.0.0-SNAPSHOT</version>
             <scope>system</scope>

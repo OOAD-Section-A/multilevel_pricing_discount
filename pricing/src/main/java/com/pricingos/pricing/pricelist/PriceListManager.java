@@ -3,6 +3,10 @@ package com.pricingos.pricing.pricelist;
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
 import com.jackfruit.scm.database.model.PriceList;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -70,8 +74,20 @@ public class PriceListManager {
 
         PriceRecord activeRecord = priceStore.findActive(normalizedSku, normalizedRegion, normalizedChannel)
                 .filter(record -> record.getStatus() == PriceRecord.Status.ACTIVE)
+<<<<<<< HEAD
                 .orElseThrow(() -> new NoSuchElementException(
                         "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "]."));
+=======
+                .orElseThrow(() -> {
+                    try {
+                        MultiLevelPricingSubsystem.INSTANCE.onBasePriceNotFound(normalizedSku);
+                    } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                        // Database not available during tests
+                    }
+                    return new NoSuchElementException(
+                        "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "].");
+                });
+>>>>>>> 7c96f5e (exception handling)
         activePriceCache.put(key, activeRecord);
         return activeRecord.getBasePrice();
     }

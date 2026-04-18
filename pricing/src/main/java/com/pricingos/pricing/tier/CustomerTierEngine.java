@@ -4,6 +4,10 @@ import com.pricingos.common.CustomerTier;
 import com.pricingos.common.ICustomerTierService;
 import com.pricingos.common.IOrderService;
 import com.pricingos.common.ValidationUtils;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -69,6 +73,14 @@ public class CustomerTierEngine implements ICustomerTierService {
             tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
             return;
         } catch (ExecutionException | TimeoutException e) {
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onExternalDataTimeout("OrderService", (int) (EXTERNAL_FETCH_TIMEOUT_SECONDS * 1000));
+            } catch (ExceptionInInitializerError | NoClassDefFoundError err) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
             return;
         }

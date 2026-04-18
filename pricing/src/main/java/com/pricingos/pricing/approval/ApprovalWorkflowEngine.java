@@ -6,6 +6,10 @@ import com.pricingos.common.IApprovalWorkflowService;
 import com.pricingos.common.IApproverRoleService;
 import com.pricingos.common.IFloorPriceService;
 import com.pricingos.common.ValidationUtils;
+<<<<<<< HEAD
+=======
+import com.scm.subsystems.MultiLevelPricingSubsystem;
+>>>>>>> 7c96f5e (exception handling)
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -146,6 +150,14 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
                 escalationTarget = "REGIONAL_MANAGER";
             }
             request.setRoutedToApproverId(escalationTarget);
+<<<<<<< HEAD
+=======
+            try {
+                MultiLevelPricingSubsystem.INSTANCE.onApprovalEscalationTimeout(request.getApprovalId(), request.getPendingHours() * 3600000);
+            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                // Database not available during tests
+            }
+>>>>>>> 7c96f5e (exception handling)
             notifyEscalated(request, escalationTarget);
         }
 

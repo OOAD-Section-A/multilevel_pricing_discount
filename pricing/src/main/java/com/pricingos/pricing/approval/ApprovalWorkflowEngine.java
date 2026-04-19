@@ -150,10 +150,14 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
                 escalationTarget = "REGIONAL_MANAGER";
             }
             request.setRoutedToApproverId(escalationTarget);
-            try {
-                MultiLevelPricingSubsystem.INSTANCE.onApprovalEscalationTimeout(request.getApprovalId(), request.getPendingHours() * 3600000);
-            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                // Database not available during tests
+            // [Test Safety] Skipped when scm.event.viewer.disabled=true to avoid
+            // ExceptionInInitializerError during mvn test
+            if (!Boolean.getBoolean("scm.event.viewer.disabled")) {
+                try {
+                    MultiLevelPricingSubsystem.INSTANCE.onApprovalEscalationTimeout(request.getApprovalId(), request.getPendingHours() * 3600000);
+                } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+                    // Database not available during tests
+                }
             }
             ApprovalRequestDao.save(request);
             notifyEscalated(request, escalationTarget);

@@ -74,6 +74,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     }
 
     @Override
+
     public void approve(String approvalId, String approverId) {
         ApprovalRequest request = getRequest(approvalId);
         if (!approverRoleService.canApprove(approverId, request.getRequestType(), request.getRequestedDiscountAmt())) {
@@ -94,6 +95,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     }
 
     @Override
+
     public void reject(String approvalId, String approverId, String reason) {
         ValidationUtils.requireNonBlank(reason, "reason");
         ApprovalRequest request = getRequest(approvalId);

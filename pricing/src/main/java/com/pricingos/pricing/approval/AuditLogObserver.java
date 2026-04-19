@@ -3,6 +3,7 @@ package com.pricingos.pricing.approval;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import com.pricingos.pricing.db.DaoBulk.AuditLogDao;
 import java.util.List;
 
 public class AuditLogObserver implements ApprovalEventObserver {
@@ -15,11 +16,9 @@ public class AuditLogObserver implements ApprovalEventObserver {
         String detail
     ) {}
 
-    private final List<AuditEntry> log = Collections.synchronizedList(new ArrayList<>());
-
     @Override
     public void onRequestSubmitted(ApprovalRequest request, String approverId) {
-        log.add(new AuditEntry(
+        AuditLogDao.save(new AuditEntry(
             LocalDateTime.now(),
             request.getApprovalId(),
             "SUBMITTED",
@@ -33,7 +32,7 @@ public class AuditLogObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestApproved(ApprovalRequest request) {
-        log.add(new AuditEntry(
+        AuditLogDao.save(new AuditEntry(
             LocalDateTime.now(),
             request.getApprovalId(),
             "APPROVED",
@@ -45,7 +44,7 @@ public class AuditLogObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestRejected(ApprovalRequest request) {
-        log.add(new AuditEntry(
+        AuditLogDao.save(new AuditEntry(
             LocalDateTime.now(),
             request.getApprovalId(),
             "REJECTED",
@@ -57,7 +56,7 @@ public class AuditLogObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestEscalated(ApprovalRequest request, String escalationTarget) {
-        log.add(new AuditEntry(
+        AuditLogDao.save(new AuditEntry(
             LocalDateTime.now(),
             request.getApprovalId(),
             "ESCALATED",
@@ -68,8 +67,6 @@ public class AuditLogObserver implements ApprovalEventObserver {
     }
 
     public List<AuditEntry> getAuditLog() {
-        synchronized (log) {
-            return Collections.unmodifiableList(new ArrayList<>(log));
-        }
+            return AuditLogDao.findAll();
     }
 }

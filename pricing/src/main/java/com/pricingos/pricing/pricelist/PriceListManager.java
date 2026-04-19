@@ -3,10 +3,7 @@ package com.pricingos.pricing.pricelist;
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
 import com.jackfruit.scm.database.model.PriceList;
-<<<<<<< HEAD
-=======
 import com.scm.subsystems.MultiLevelPricingSubsystem;
->>>>>>> 7c96f5e (exception handling)
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -74,10 +71,6 @@ public class PriceListManager {
 
         PriceRecord activeRecord = priceStore.findActive(normalizedSku, normalizedRegion, normalizedChannel)
                 .filter(record -> record.getStatus() == PriceRecord.Status.ACTIVE)
-<<<<<<< HEAD
-                .orElseThrow(() -> new NoSuchElementException(
-                        "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "]."));
-=======
                 .orElseThrow(() -> {
                     try {
                         MultiLevelPricingSubsystem.INSTANCE.onBasePriceNotFound(normalizedSku);
@@ -87,7 +80,6 @@ public class PriceListManager {
                     return new NoSuchElementException(
                         "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "].");
                 });
->>>>>>> 7c96f5e (exception handling)
         activePriceCache.put(key, activeRecord);
         return activeRecord.getBasePrice();
     }
@@ -116,7 +108,7 @@ public class PriceListManager {
         priceStore.markActiveAsSuperseded(record.getSkuId(), record.getRegionCode(), record.getChannel(), now);
 
         PriceRecord persisted = new PriceRecord(
-                UUID.randomUUID().toString(),
+                "PRICE-" + UUID.randomUUID().toString(),
                 record.getSkuId(),
                 record.getRegionCode(),
                 record.getChannel(),
@@ -141,6 +133,23 @@ public class PriceListManager {
             + ", basePrice=" + persisted.getBasePrice()
             + ", floor=" + persisted.getPriceFloor()
             + ", effectiveFrom=" + persisted.getEffectiveFrom());
+    }
+
+    public void deletePrice(String priceId) throws Exception {
+        ValidationUtils.requireNonBlank(priceId, "priceId");
+        String sql = "DELETE FROM price_list WHERE price_id = ?";
+        try (java.sql.Connection conn = com.pricingos.pricing.db.DatabaseConnectionPool.getInstance().getConnection();
+             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, priceId);
+            int rowsDeleted = ps.executeUpdate();
+            if (rowsDeleted > 0) {
+                LOGGER.info("Successfully deleted price with ID: " + priceId);
+                // Also remove it from active cache if it exists
+                activePriceCache.values().removeIf(record -> record.getPriceId().equals(priceId));
+            } else {
+                LOGGER.warning("No price record found for ID: " + priceId);
+            }
+        }
     }
 
     public String getActiveRegion() {

@@ -4,10 +4,7 @@ import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
 import com.jackfruit.scm.database.facade.subsystem.PricingSubsystemFacade;
 import com.jackfruit.scm.database.model.PriceList;
 import com.jackfruit.scm.database.model.PricingModels;
-<<<<<<< HEAD
-=======
 import com.scm.subsystems.MultiLevelPricingSubsystem;
->>>>>>> 7c96f5e (exception handling)
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -28,6 +25,8 @@ public class PricingSubsystemGUI extends JFrame {
     private PricingSubsystemFacade pricingFacade;
     private com.pricingos.pricing.promotion.PromotionManager promotionManager;
     private com.pricingos.pricing.pricelist.PriceListManager priceListManager;
+    private com.pricingos.pricing.approval.ApprovalWorkflowEngine approvalEngine;
+    private com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver analyticsObserver;
     
     private JTabbedPane tabbedPane;
     private JTextArea logArea;
@@ -39,6 +38,12 @@ public class PricingSubsystemGUI extends JFrame {
     private DefaultTableModel tierTableModel;
     private DefaultTableModel promotionsTableModel;
     
+    private DefaultTableModel approvalTableModel;
+    private JTable approvalTable;
+    private DefaultTableModel analyticsTableModel;
+    private JTable analyticsTable;
+    private JLabel totalRevenueDeltaLabel;
+    
     public PricingSubsystemGUI() {
         initializeDatabaseConnection();
         initializeSubsystemAPIs();
@@ -48,26 +53,35 @@ public class PricingSubsystemGUI extends JFrame {
 
     private void initializeSubsystemAPIs() {
         try {
-            // Initialize PromotionManager with a simple SKU catalog service
             com.pricingos.common.ISkuCatalogService skuCatalogService = new com.pricingos.common.ISkuCatalogService() {
-                @Override
-                public boolean isSkuActive(String skuId) {
-                    // Simple implementation - assume all SKUs are active
-                    return true;
-                }
-
-                @Override
-                public java.util.List<String> getAllActiveSkuIds() {
-                    // Return a sample list of active SKUs
+                @Override public boolean isSkuActive(String skuId) { return true; }
+                @Override public java.util.List<String> getAllActiveSkuIds() {
                     return java.util.List.of("SKU-APPLE-001", "SKU-BANANA-001", "SKU-ORANGE-001");
                 }
             };
             promotionManager = new com.pricingos.pricing.promotion.PromotionManager(skuCatalogService);
-
-            // Initialize PriceListManager
             priceListManager = new com.pricingos.pricing.pricelist.PriceListManager();
 
-            log("Initialized subsystem APIs: PromotionManager, PriceListManager");
+            com.pricingos.pricing.approval.ApprovalRoutingStrategy strategy = new com.pricingos.pricing.approval.ApprovalRoutingStrategy() {
+                @Override public String resolveApproverId(com.pricingos.pricing.approval.ApprovalRequest request) { return "MANAGER_123"; }
+                @Override public boolean requiresDualApproval(com.pricingos.pricing.approval.ApprovalRequest request) { return false; }
+            };
+            com.pricingos.common.IApproverRoleService roleService = new com.pricingos.common.IApproverRoleService() {
+                @Override public boolean canApprove(String approverId, com.pricingos.common.ApprovalRequestType type, double discount) { return true; }
+                @Override public String getEscalationManagerId(String currentApprover) { return "DIRECTOR_123"; }
+            };
+            approvalEngine = new com.pricingos.pricing.approval.ApprovalWorkflowEngine(strategy, roleService);
+            
+            com.pricingos.common.IFloorPriceService floorPriceService = new com.pricingos.common.IFloorPriceService() {
+                @Override public boolean wouldViolateMargin(String orderId, double price) { return false; } // Explcitly checked in GUI
+                @Override public double getEffectiveFloorPrice(String orderId) { return 100.0; }
+            };
+            approvalEngine.withFloorPriceService(floorPriceService);
+            
+            analyticsObserver = new com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver();
+            approvalEngine.addObserver(analyticsObserver);
+
+            log("Initialized subsystem APIs: PromotionManager, PriceListManager, ApprovalWorkflowEngine, AnalyticsObserver");
         } catch (Exception e) {
             log("ERROR initializing subsystem APIs: " + e.getMessage());
             LOGGER.log(Level.SEVERE, "Failed to initialize subsystem APIs", e);
@@ -113,6 +127,8 @@ public class PricingSubsystemGUI extends JFrame {
         tabbedPane.addTab("Promotions (DB)", createPromotionsPanel());
         tabbedPane.addTab("Promo Code Manager", createPromoCodeManagerPanel());
         tabbedPane.addTab("Price Calculator", createPricingCalculatorPanel());
+        tabbedPane.addTab("Approval Workflows", createApprovalPanel());
+        tabbedPane.addTab("Profitability Analytics", createAnalyticsPanel());
         
         add(tabbedPane, BorderLayout.CENTER);
         
@@ -334,14 +350,6 @@ public class PricingSubsystemGUI extends JFrame {
                 String name = nameField.getText();
                 String couponCode = codeField.getText();
                 String discountType = (String) typeCombo.getSelectedItem();
-<<<<<<< HEAD
-                double discountValue = Double.parseDouble(valueField.getText());
-                List<String> eligibleSkus = List.of(skuField.getText().split(","));
-                double minCartValue = Double.parseDouble(minCartField.getText());
-                int maxUses = Integer.parseInt(maxUsesField.getText());
-                java.time.LocalDate startDate = java.time.LocalDate.parse(startDateField.getText());
-                java.time.LocalDate endDate = java.time.LocalDate.parse(endDateField.getText());
-=======
                 double discountValue;
                 List<String> eligibleSkus;
                 double minCartValue;
@@ -368,7 +376,6 @@ public class PricingSubsystemGUI extends JFrame {
                 eligibleSkus = List.of(skuField.getText().split(","));
                 startDate = java.time.LocalDate.parse(startDateField.getText());
                 endDate = java.time.LocalDate.parse(endDateField.getText());
->>>>>>> 7c96f5e (exception handling)
 
                 log("Creating promotion: " + name + " with code: " + couponCode + " for SKUs: " + eligibleSkus);
                 log("Dates: " + startDate + " to " + endDate + ", Min cart: " + minCartValue);
@@ -563,6 +570,8 @@ public class PricingSubsystemGUI extends JFrame {
         loadPriceList();
         loadTierDefinitions();
         loadPromotions();
+        loadApprovals();
+        loadAnalytics();
     }
     
     private void loadPriceList() {
@@ -780,12 +789,12 @@ public class PricingSubsystemGUI extends JFrame {
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {
-                // Note: The facade doesn't have a delete method, so we'll log this
-                // In a real implementation, you would add a delete method to the facade
-                log("Delete requested for price: " + priceId + " (delete not implemented in facade)");
+                priceListManager.deletePrice(priceId);
+                log("Successfully deleted price: " + priceId);
                 JOptionPane.showMessageDialog(this,
-                    "Delete functionality not available in current database facade API",
-                    "Feature Not Available", JOptionPane.INFORMATION_MESSAGE);
+                    "Price deleted successfully: " + priceId,
+                    "Deleted", JOptionPane.INFORMATION_MESSAGE);
+                loadData();
             } catch (Exception e) {
                 log("ERROR deleting price: " + e.getMessage());
                 JOptionPane.showMessageDialog(this, "Error deleting price: " + e.getMessage(),
@@ -848,6 +857,105 @@ public class PricingSubsystemGUI extends JFrame {
         dialog.add(panel, BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
         dialog.setVisible(true);
+    }
+    private void loadApprovals() {
+        try {
+            log("Loading approval requests from database...");
+            approvalTableModel.setRowCount(0);
+            for (com.pricingos.pricing.approval.ApprovalRequest r : com.pricingos.pricing.approval.ApprovalRequestDao.findAll(null)) {
+                approvalTableModel.addRow(new Object[]{ 
+                    r.getApprovalId(), 
+                    r.getOrderId(), 
+                    r.getRequestType().name(),
+                    r.getRequestedBy(), 
+                    r.getRequestedDiscountAmt(), 
+                    r.getJustificationText(),
+                    r.getRoutedToApproverId(),
+                    r.getSubmissionTime(), 
+                    r.getStatus().name() 
+                });
+            }
+        } catch (Exception e) { log("ERROR loading approvals: " + e.getMessage()); }
+    }
+
+    private void loadAnalytics() {
+        try {
+            log("Loading profitability analytics from database...");
+            analyticsTableModel.setRowCount(0);
+            for (com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver.ProfitabilityEntry e : analyticsObserver.getAllRecords()) {
+                analyticsTableModel.addRow(new Object[]{ e.approvalId(), e.requestType().name(), e.finalStatus().name(), e.discountAmount(), e.recordedAt() });
+            }
+            totalRevenueDeltaLabel.setText("Total Revenue Impact (Approved Discounts): " + analyticsObserver.getApprovedRevenueDelta());
+        } catch (Exception e) { log("ERROR loading analytics: " + e.getMessage()); }
+    }
+
+    private JPanel createApprovalPanel() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        
+        JLabel titleLabel = new JLabel("Pending Approval Requests");
+        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        panel.add(titleLabel, BorderLayout.NORTH);
+        
+        String[] columns = {"ID", "Order", "Type", "Requested By", "Discount", "Justification", "Assigned To", "Submission Time", "Status"};
+        approvalTableModel = new DefaultTableModel(columns, 0) {
+            @Override public boolean isCellEditable(int row, int column) { return false; }
+        };
+        approvalTable = new JTable(approvalTableModel);
+        panel.add(new JScrollPane(approvalTable), BorderLayout.CENTER);
+        
+        JPanel buttonPanel = new JPanel();
+        JButton approveBtn = new JButton("Approve Request");
+        approveBtn.addActionListener(e -> {
+            int row = approvalTable.getSelectedRow();
+            if (row >= 0) {
+                String id = (String) approvalTableModel.getValueAt(row, 0);
+                try {
+                	approvalEngine.approve(id, "MANAGER_123");
+                	loadData();
+                	JOptionPane.showMessageDialog(panel, "Request Approved Successfully!");
+                } catch(Exception ex) { JOptionPane.showMessageDialog(panel, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
+            } else { JOptionPane.showMessageDialog(panel, "Select a row first"); }
+        });
+        JButton rejectBtn = new JButton("Reject Request");
+        rejectBtn.addActionListener(e -> {
+            int row = approvalTable.getSelectedRow();
+            if (row >= 0) {
+                String id = (String) approvalTableModel.getValueAt(row, 0);
+                try {
+                    approvalEngine.reject(id, "MANAGER_123", "Manual review rejection");
+                    loadData();
+                    JOptionPane.showMessageDialog(panel, "Request Rejected!");
+                } catch(Exception ex) { JOptionPane.showMessageDialog(panel, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
+            } else { JOptionPane.showMessageDialog(panel, "Select a row first"); }
+        });
+        buttonPanel.add(approveBtn);
+        buttonPanel.add(rejectBtn);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel createAnalyticsPanel() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        
+        JPanel header = new JPanel(new BorderLayout());
+        JLabel titleLabel = new JLabel("Profitability Analytics (Decisions Ledger)");
+        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        header.add(titleLabel, BorderLayout.NORTH);
+        totalRevenueDeltaLabel = new JLabel("Total Revenue Impact: 0.0");
+        totalRevenueDeltaLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        header.add(totalRevenueDeltaLabel, BorderLayout.SOUTH);
+        panel.add(header, BorderLayout.NORTH);
+        
+        String[] columns = {"Approval ID", "Request Type", "Final Status", "Discount Amount", "Recorded At"};
+        analyticsTableModel = new DefaultTableModel(columns, 0) {
+            @Override public boolean isCellEditable(int row, int column) { return false; }
+        };
+        analyticsTable = new JTable(analyticsTableModel);
+        panel.add(new JScrollPane(analyticsTable), BorderLayout.CENTER);
+        
+        return panel;
     }
 
     private void calculatePrice(JTextField skuField, JTextField customerField,
@@ -926,9 +1034,43 @@ public class PricingSubsystemGUI extends JFrame {
             
             BigDecimal totalDiscount = subtotal.subtract(finalPrice);
             breakdown.append("Total Discount: ").append(totalDiscount).append("\n");
-            breakdown.append("Total Savings: ").append(totalDiscount.multiply(BigDecimal.valueOf(100))
-                     .divide(subtotal, 2, java.math.RoundingMode.HALF_UP)).append("%\n");
             
+            // Avoid division by zero
+            if (subtotal.compareTo(BigDecimal.ZERO) > 0) {
+                breakdown.append("Total Savings: ").append(totalDiscount.multiply(BigDecimal.valueOf(100))
+                         .divide(subtotal, 2, java.math.RoundingMode.HALF_UP)).append("%\n");
+            }
+            
+            // Check Margin Floor
+            BigDecimal floorPriceBD = new BigDecimal("100.00");
+            for (PriceList price : prices) {
+                if (price.getSkuId().equals(skuId) && "ACTIVE".equals(price.getStatus())) {
+                    floorPriceBD = price.getPriceFloor();
+                    break;
+                }
+            }
+            if (finalPrice.compareTo(floorPriceBD) < 0) {
+                breakdown.append("⚠️ MARGIN VIOLATION ALERT ⚠️\nFinal Price is below Floor Price of ").append(floorPriceBD).append("\n\n");
+                pricingCalculatorOutput.setText(breakdown.toString());
+                int choice = JOptionPane.showConfirmDialog(this,
+                    "Margin violation! Final price " + finalPrice + " is below floor price " + floorPriceBD + ".\nWould you like to submit this override to manager workflows?",
+                    "Margin Protection Alert", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.YES_OPTION) {
+                    try {
+                        String reqId = approvalEngine.submitOverrideRequest("SalesAgent-01", 
+                            com.pricingos.common.ApprovalRequestType.MANUAL_DISCOUNT, 
+                            "ORDER-" + System.currentTimeMillis(), 
+                            totalDiscount.doubleValue(), 
+                            "Requested competitive matching override for customer " + customerId);
+                        JOptionPane.showMessageDialog(this, "Approval request submitted!\nID: " + reqId, "Success", JOptionPane.INFORMATION_MESSAGE);
+                        loadData();
+                    } catch(Exception ex) {
+                        JOptionPane.showMessageDialog(this, "Error submitting request: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+                return;
+            }
+
             // Display in the output area
             pricingCalculatorOutput.setText(breakdown.toString());
 

@@ -4,23 +4,17 @@ import com.pricingos.common.CustomerTier;
 import com.pricingos.common.ICustomerTierService;
 import com.pricingos.common.IOrderService;
 import com.pricingos.common.ValidationUtils;
-<<<<<<< HEAD
-=======
 import com.scm.subsystems.MultiLevelPricingSubsystem;
->>>>>>> 7c96f5e (exception handling)
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.ConcurrentHashMap;
-
+import com.pricingos.pricing.db.TierDao;
 public class CustomerTierEngine implements ICustomerTierService {
     private static final long EXTERNAL_FETCH_TIMEOUT_SECONDS = 2L;
     private final IOrderService orderService;
     private final TierEvaluationStrategy tierEvaluationStrategy;
-    private final ConcurrentHashMap<String, CustomerTier> tierByCustomer = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CustomerTier> overrideByCustomer = new ConcurrentHashMap<>();
 
     public CustomerTierEngine(IOrderService orderService) {
         this(orderService, new SpendBasedTierEvaluationStrategy());
@@ -31,14 +25,13 @@ public class CustomerTierEngine implements ICustomerTierService {
         this.tierEvaluationStrategy = Objects.requireNonNull(tierEvaluationStrategy, "tierEvaluationStrategy cannot be null");
     }
 
-    @Override
     public CustomerTier getTier(String customerId) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
-        CustomerTier overridden = overrideByCustomer.get(normalizedCustomerId);
+        CustomerTier overridden = TierDao.getOverrideTier(normalizedCustomerId);
         if (overridden != null) {
             return overridden;
         }
-        CustomerTier evaluated = tierByCustomer.get(normalizedCustomerId);
+        CustomerTier evaluated = TierDao.getEvaluatedTier(normalizedCustomerId);
         return evaluated == null ? CustomerTier.STANDARD : evaluated;
     }
 
@@ -50,12 +43,12 @@ public class CustomerTierEngine implements ICustomerTierService {
     @Override
     public void evaluateTier(String customerId) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
-        if (overrideByCustomer.containsKey(normalizedCustomerId)) {
+        if (TierDao.hasOverride(normalizedCustomerId)) {
             return;
         }
 
         if (normalizedCustomerId.startsWith("UNKNOWN")) {
-            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
             return;
         }
 
@@ -70,18 +63,15 @@ public class CustomerTierEngine implements ICustomerTierService {
                 .get(EXTERNAL_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
             return;
         } catch (ExecutionException | TimeoutException e) {
-<<<<<<< HEAD
-=======
             try {
                 MultiLevelPricingSubsystem.INSTANCE.onExternalDataTimeout("OrderService", (int) (EXTERNAL_FETCH_TIMEOUT_SECONDS * 1000));
             } catch (ExceptionInInitializerError | NoClassDefFoundError err) {
                 // Database not available during tests
             }
->>>>>>> 7c96f5e (exception handling)
-            tierByCustomer.put(normalizedCustomerId, CustomerTier.STANDARD);
+            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
             return;
         }
 
@@ -91,14 +81,14 @@ public class CustomerTierEngine implements ICustomerTierService {
                 annualOrderCount
         );
 
-        tierByCustomer.put(normalizedCustomerId, evaluatedTier);
+        TierDao.saveEvaluatedTier(normalizedCustomerId, evaluatedTier);
     }
 
     @Override
     public void overrideTier(String customerId, CustomerTier tier) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         Objects.requireNonNull(tier, "tier cannot be null");
-        overrideByCustomer.put(normalizedCustomerId, tier);
-        tierByCustomer.put(normalizedCustomerId, tier);
+        TierDao.saveOverrideTier(normalizedCustomerId, tier);
+        TierDao.saveEvaluatedTier(normalizedCustomerId, tier);
     }
 }

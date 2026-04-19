@@ -6,16 +6,12 @@ import com.pricingos.common.IApprovalWorkflowService;
 import com.pricingos.common.IApproverRoleService;
 import com.pricingos.common.IFloorPriceService;
 import com.pricingos.common.ValidationUtils;
-<<<<<<< HEAD
-=======
 import com.scm.subsystems.MultiLevelPricingSubsystem;
->>>>>>> 7c96f5e (exception handling)
 
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -25,13 +21,11 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private static final long ESCALATION_THRESHOLD_HOURS = 48L;
     private static final long AUTO_REJECT_THRESHOLD_HOURS = 48L;
 
-    private volatile IFloorPriceService floorPriceService;
-    private final ConcurrentHashMap<String, ApprovalRequest> requestsById = new ConcurrentHashMap<>();
     private final ApprovalRoutingStrategy routingStrategy;
     private final IApproverRoleService approverRoleService;
     private final Clock clock;
     private final List<ApprovalEventObserver> observers = new CopyOnWriteArrayList<>();
-    private final AtomicInteger idCounter = new AtomicInteger();
+    private final AtomicInteger idCounter = new AtomicInteger((int)(Math.random() * 1000000));
 
     public ApprovalWorkflowEngine(ApprovalRoutingStrategy routingStrategy,
                                   IApproverRoleService approverRoleService) {
@@ -49,6 +43,8 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         this.floorPriceService = floorPriceService;
         return this;
     }
+
+    private volatile IFloorPriceService floorPriceService;
 
     public void addObserver(ApprovalEventObserver observer) {
         observers.add(Objects.requireNonNull(observer, "observer cannot be null"));
@@ -72,7 +68,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             throw new IllegalStateException("Routing strategy returned a blank approver ID for request " + approvalId);
         }
         request.setRoutedToApproverId(targetApproverId);
-        requestsById.put(request.getApprovalId(), request);
+        ApprovalRequestDao.save(request);
         notifySubmitted(request, targetApproverId);
         return approvalId;
     }
@@ -93,6 +89,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         }
 
         request.markAsApproved(approverId);
+        ApprovalRequestDao.save(request);
         notifyApproved(request);
     }
 
@@ -106,13 +103,14 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         }
 
         request.markAsRejected(approverId, reason);
+        ApprovalRequestDao.save(request);
         notifyRejected(request);
     }
 
     @Override
     public List<String> getPendingApprovals(String approverId) {
         ValidationUtils.requireNonBlank(approverId, "approverId");
-        return requestsById.values().stream()
+        return ApprovalRequestDao.findAll(clock).stream()
             .filter(r -> approverId.equals(r.getRoutedToApproverId()))
             .filter(r -> r.getStatus() == ApprovalStatus.PENDING || r.getStatus() == ApprovalStatus.ESCALATED)
             .map(ApprovalRequest::getApprovalId)
@@ -125,7 +123,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         List<ApprovalRequest> toEscalate = new ArrayList<>();
         List<ApprovalRequest> toAutoReject = new ArrayList<>();
 
-        for (ApprovalRequest request : requestsById.values()) {
+        for (ApprovalRequest request : ApprovalRequestDao.findAll(clock)) {
             ApprovalStatus status = request.getStatus();
             if (status == ApprovalStatus.PENDING && request.getPendingHours() >= ESCALATION_THRESHOLD_HOURS) {
                 toEscalate.add(request);
@@ -150,14 +148,12 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
                 escalationTarget = "REGIONAL_MANAGER";
             }
             request.setRoutedToApproverId(escalationTarget);
-<<<<<<< HEAD
-=======
             try {
                 MultiLevelPricingSubsystem.INSTANCE.onApprovalEscalationTimeout(request.getApprovalId(), request.getPendingHours() * 3600000);
             } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
                 // Database not available during tests
             }
->>>>>>> 7c96f5e (exception handling)
+            ApprovalRequestDao.save(request);
             notifyEscalated(request, escalationTarget);
         }
 
@@ -173,6 +169,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             } catch (IllegalStateException ignored) {
                 continue;
             }
+            ApprovalRequestDao.save(request);
             notifyRejected(request);
         }
     }
@@ -218,7 +215,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
     private ApprovalRequest getRequest(String approvalId) {
         String normalizedId = ValidationUtils.requireNonBlank(approvalId, "approvalId");
-        ApprovalRequest request = requestsById.get(normalizedId);
+        ApprovalRequest request = ApprovalRequestDao.get(normalizedId, clock);
         if (request == null) {
             throw new IllegalArgumentException("No approval request found with ID: " + normalizedId);
         }

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pricingos.pricing.db.DaoBulk.PromoDao;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -22,8 +23,7 @@ public class PromotionManager implements IPromotionService {
     private static final double MAX_PERCENTAGE_VALUE = 100.0;
 
     private final AtomicInteger idCounter = new AtomicInteger();
-    private final Map<String, PromotionState> promotionsById = new ConcurrentHashMap<>();
-    private final Map<String, String> promoIdByCoupon = new ConcurrentHashMap<>();
+    
     private final ISkuCatalogService skuCatalogService;
     private final Clock clock;
 
@@ -61,11 +61,10 @@ public class PromotionManager implements IPromotionService {
             maxUses
         );
 
-        if (promoIdByCoupon.containsKey(normalizedCode)) {
+        if (PromoDao.getByCode(normalizedCode, PromotionState.class) != null) {
             throw new IllegalArgumentException("Coupon code '" + normalizedCode + "' already exists.");
         }
-        promotionsById.put(promoId, promo);
-        promoIdByCoupon.put(normalizedCode, promoId);
+        PromoDao.save(promo);
         return promoId;
     }
 
@@ -109,12 +108,13 @@ public class PromotionManager implements IPromotionService {
             throw new IllegalArgumentException("No promotion found for coupon code: " + normalizedCode);
         }
         promo.recordRedemption();
+        PromoDao.save(promo);
     }
 
     @Override
     public List<String> getActivePromoCodes() {
         LocalDate today = LocalDate.now(clock);
-        return promotionsById.values().stream()
+        return ((java.util.List<PromotionState>)(java.util.List)PromoDao.findAll(PromotionState.class)).stream()
             .filter(p -> !p.expired())
             .filter(p -> !today.isBefore(p.startDate()) && !today.isAfter(p.endDate()))
             .filter(p -> p.maxUses() == 0 || p.currentUseCount() < p.maxUses())
@@ -136,9 +136,10 @@ public class PromotionManager implements IPromotionService {
     @Override
     public void expireStalePromotions() {
         LocalDate today = LocalDate.now(clock);
-        promotionsById.values().forEach(promo -> {
+        ((java.util.List<PromotionState>)(java.util.List)PromoDao.findAll(PromotionState.class)).forEach(promo -> {
             if (promo.isExpiredOn(today)) {
                 promo.markExpired();
+                PromoDao.save(promo);
             }
         });
     }
@@ -163,15 +164,12 @@ public class PromotionManager implements IPromotionService {
     }
 
     private PromotionState findByCouponCode(String normalizedCouponCode) {
-        String promoId = promoIdByCoupon.get(normalizedCouponCode);
-        if (promoId == null) {
-            return null;
-        }
-        return promotionsById.get(promoId);
+        return (PromotionState) PromoDao.getByCode(normalizedCouponCode, PromotionState.class);
     }
 
     private static final class PromotionState {
         private final String promoId;
+        private final String name;
         private final String couponCode;
         private final DiscountType discountType;
         private final double discountValue;
@@ -194,7 +192,7 @@ public class PromotionManager implements IPromotionService {
                                double minCartValue,
                                int maxUses) {
             this.promoId = ValidationUtils.requireNonBlank(promoId, "promoId");
-            ValidationUtils.requireNonBlank(promoName, "promoName");
+            this.name = ValidationUtils.requireNonBlank(promoName, "promoName");
             this.couponCode = ValidationUtils.requireNonBlank(couponCode, "couponCode");
             this.discountType = Objects.requireNonNull(discountType, "discountType cannot be null");
             if (!Double.isFinite(discountValue) || discountValue <= 0) {

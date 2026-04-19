@@ -50,6 +50,12 @@ class PromotionManagerTest {
     private static final Clock FIXED_CLOCK  =
         Clock.fixed(TODAY.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
 
+    
+    @org.junit.jupiter.api.AfterEach
+    void clearDaoBulk() {
+        com.pricingos.pricing.db.DaoBulk.clearAll();
+    }
+
     @BeforeEach
     void setUp() {
         manager = new PromotionManager(STUB_CATALOG, FIXED_CLOCK);

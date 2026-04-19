@@ -10,11 +10,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pricingos.pricing.db.DaoBulk.VolumeDao;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class VolumeDiscountManager implements IVolumeDiscountService {
 
-    private final Map<String, VolumeSchedule> promoBySkuId = new ConcurrentHashMap<>();
+    
     private final AtomicInteger idCounter = new AtomicInteger();
     private final ISkuCatalogService skuCatalogService;
 
@@ -38,7 +39,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
         }
 
         String promoId = "VOL-" + idCounter.incrementAndGet();
-        promoBySkuId.put(normalized, new VolumeSchedule(tiers));
+        VolumeDao.save(normalized, new VolumeSchedule(tiers));
         return promoId;
     }
 
@@ -56,7 +57,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
             throw new IllegalArgumentException("baseUnitPrice must be a non-negative finite number");
         }
 
-        VolumeSchedule promo = promoBySkuId.get(normalized);
+        VolumeSchedule promo = (VolumeSchedule) VolumeDao.get(normalized, VolumeSchedule.class);
         if (promo == null) {
             return baseUnitPrice;
         }
@@ -70,7 +71,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
 
     @Override
     public boolean hasVolumePromotion(String skuId) {
-        return promoBySkuId.containsKey(skuId == null ? "" : skuId.trim());
+        return VolumeDao.has(skuId == null ? "" : skuId.trim());
     }
 
     private static final class VolumeSchedule {

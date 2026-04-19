@@ -13,10 +13,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
+import com.pricingos.pricing.db.DaoBulk.AnalyticsDao;
 
 public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
 
-    private final List<ProfitabilityEntry> records = new CopyOnWriteArrayList<>();
+    
 
     private final Clock clock;
 
@@ -33,7 +34,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestApproved(ApprovalRequest request) {
-        records.add(new ProfitabilityEntry(
+        AnalyticsDao.save(new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
@@ -44,7 +45,7 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestRejected(ApprovalRequest request) {
-        records.add(new ProfitabilityEntry(
+        AnalyticsDao.save(new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
@@ -57,21 +58,21 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
     public void onRequestEscalated(ApprovalRequest request, String escalationTarget) {}
 
     public double getApprovedRevenueDelta() {
-        return records.stream()
+        return AnalyticsDao.findAll().stream()
             .filter(r -> r.finalStatus() == ApprovalStatus.APPROVED)
             .mapToDouble(ProfitabilityEntry::discountAmount)
             .sum();
     }
 
     public double getRejectedSavings() {
-        return records.stream()
+        return AnalyticsDao.findAll().stream()
             .filter(r -> r.finalStatus() == ApprovalStatus.REJECTED)
             .mapToDouble(ProfitabilityEntry::discountAmount)
             .sum();
     }
 
     public Map<ApprovalRequestType, DoubleSummaryStatistics> getBreakdownByType() {
-        return records.stream().collect(
+        return AnalyticsDao.findAll().stream().collect(
             Collectors.groupingBy(
                 ProfitabilityEntry::requestType,
                 Collectors.summarizingDouble(ProfitabilityEntry::discountAmount)
@@ -80,11 +81,11 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
     }
 
     public int getTotalDecisions() {
-        return records.size();
+        return AnalyticsDao.findAll().size();
     }
 
     public List<ProfitabilityEntry> getAllRecords() {
-        return Collections.unmodifiableList(new ArrayList<>(records));
+        return AnalyticsDao.findAll();
     }
 
     public record ProfitabilityEntry(

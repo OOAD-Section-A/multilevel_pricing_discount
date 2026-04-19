@@ -74,7 +74,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     }
 
     @Override
-    // [Requirement 1] ProfitabilityAnalyticsObserver implementation should hook into this
+
     public void approve(String approvalId, String approverId) {
         ApprovalRequest request = getRequest(approvalId);
         if (!approverRoleService.canApprove(approverId, request.getRequestType(), request.getRequestedDiscountAmt())) {
@@ -95,7 +95,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     }
 
     @Override
-    // [Requirement 1] ProfitabilityAnalyticsObserver implementation should hook into this
+
     public void reject(String approvalId, String approverId, String reason) {
         ValidationUtils.requireNonBlank(reason, "reason");
         ApprovalRequest request = getRequest(approvalId);

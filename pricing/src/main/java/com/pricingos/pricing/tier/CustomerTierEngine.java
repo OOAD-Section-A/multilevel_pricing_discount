@@ -25,7 +25,7 @@ public class CustomerTierEngine implements ICustomerTierService {
         this.tierEvaluationStrategy = Objects.requireNonNull(tierEvaluationStrategy, "tierEvaluationStrategy cannot be null");
     }
 
-    // [Requirement 2] CustomerTierEngine implementation should hook into this
+
     public CustomerTier getTier(String customerId) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         CustomerTier overridden = TierDao.getOverrideTier(normalizedCustomerId);
@@ -37,7 +37,7 @@ public class CustomerTierEngine implements ICustomerTierService {
     }
 
     @Override
-    // [Requirement 2] CustomerTierEngine implementation should hook into this
+
     public double getDiscountRate(String customerId) {
         return getTier(customerId).getDiscountRate();
     }

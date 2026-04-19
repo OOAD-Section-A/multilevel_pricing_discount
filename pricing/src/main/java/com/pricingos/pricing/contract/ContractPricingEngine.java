@@ -3,10 +3,7 @@ package com.pricingos.pricing.contract;
 import com.pricingos.common.ContractStatus;
 import com.pricingos.common.IContractPricingService;
 import com.pricingos.common.ValidationUtils;
-<<<<<<< HEAD
-=======
 import com.scm.subsystems.MultiLevelPricingSubsystem;
->>>>>>> 7c96f5e (exception handling)
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,7 +18,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class ContractPricingEngine implements IContractPricingService {
 
-    private final ConcurrentHashMap<String, Contract> contractsById = new ConcurrentHashMap<>();
     private final AtomicInteger counter = new AtomicInteger();
 
     @Override
@@ -38,7 +34,7 @@ public class ContractPricingEngine implements IContractPricingService {
             .endDate(endDate)
             .skuPrices(skuPrices)
             .build();
-        contractsById.put(id, contract);
+        ContractDao.save(contract);
         return id;
     }
 
@@ -47,7 +43,7 @@ public class ContractPricingEngine implements IContractPricingService {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
         LocalDate today = LocalDate.now();
-        Optional<Double> active = contractsById.values().stream()
+        Optional<Double> active = ContractDao.findAll().stream()
             .filter(c -> c.getCustomerId().equals(normalizedCustomerId) && c.isActiveOn(today))
             .max(Comparator.comparing(Contract::getStartDate).thenComparing(Contract::getContractId))
             .map(c -> c.getPrice(normalizedSkuId));
@@ -56,16 +52,13 @@ public class ContractPricingEngine implements IContractPricingService {
             return active;
         }
 
-        boolean hasExpiredMatch = contractsById.values().stream().anyMatch(c ->
+        boolean hasExpiredMatch = ContractDao.findAll().stream().anyMatch(c ->
             c.getCustomerId().equals(normalizedCustomerId)
                 && c.getPrice(normalizedSkuId) != null
                 && c.getEndDate().isBefore(today));
         if (hasExpiredMatch) {
-<<<<<<< HEAD
-            // CONTRACT_EXPIRED_ALERT handled as fallback to standard pricing (non-blocking)
-=======
             // Find the expired contract to get its ID and expiry date
-            contractsById.values().stream()
+            ContractDao.findAll().stream()
                 .filter(c -> c.getCustomerId().equals(normalizedCustomerId)
                     && c.getPrice(normalizedSkuId) != null
                     && c.getEndDate().isBefore(today))
@@ -77,25 +70,30 @@ public class ContractPricingEngine implements IContractPricingService {
                         // Database not available during tests
                     }
                 });
->>>>>>> 7c96f5e (exception handling)
         }
         return Optional.empty();
     }
 
     @Override
     public void submitForApproval(String contractId) {
-        get(contractId).submitForApproval();
+        Contract c = get(contractId);
+        c.submitForApproval();
+        ContractDao.save(c);
     }
 
     @Override
     public void activate(String contractId) {
-        get(contractId).activate();
+        Contract c = get(contractId);
+        c.activate();
+        ContractDao.save(c);
     }
 
     @Override
     public void renew(String contractId, LocalDate newEndDate) {
         Objects.requireNonNull(newEndDate, "newEndDate cannot be null");
-        get(contractId).renew(newEndDate);
+        Contract c = get(contractId);
+        c.renew(newEndDate);
+        ContractDao.save(c);
     }
 
     @Override
@@ -110,7 +108,7 @@ public class ContractPricingEngine implements IContractPricingService {
         LocalDate today = LocalDate.now();
 
         Set<Double> activePrices = new HashSet<>();
-        for (Contract contract : contractsById.values()) {
+        for (Contract contract : ContractDao.findAll()) {
             if (!contract.getCustomerId().equals(normalizedCustomerId) || !contract.isActiveOn(today)) {
                 continue;
             }
@@ -133,8 +131,9 @@ public class ContractPricingEngine implements IContractPricingService {
         LocalDate today = LocalDate.now();
         LocalDate cutoff = today.plusDays(days);
         List<String> result = new ArrayList<>();
-        for (Contract c : contractsById.values()) {
+        for (Contract c : ContractDao.findAll()) {
             if (c.markExpiringIfDue(today, cutoff)) {
+                ContractDao.save(c);
                 result.add(c.getContractId());
             }
         }
@@ -144,7 +143,7 @@ public class ContractPricingEngine implements IContractPricingService {
 
     private Contract get(String id) {
         String normalizedId = ValidationUtils.requireNonBlank(id, "contractId");
-        Contract contract = contractsById.get(normalizedId);
+        Contract contract = ContractDao.get(normalizedId);
         if (contract == null) {
             throw new IllegalArgumentException("No contract: " + normalizedId);
         }

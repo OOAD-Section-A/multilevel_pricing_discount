@@ -61,6 +61,7 @@ class ApprovalWorkflowTest {
 
     @BeforeEach
     void setUp() {
+        com.pricingos.pricing.db.DaoBulk.clearAll();
         engine = new ApprovalWorkflowEngine(STUB_STRATEGY, STUB_ROLE_SERVICE);
         observer = new CapturingObserver();
         engine.addObserver(observer);

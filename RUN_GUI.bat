@@ -1,0 +1,13 @@
+@echo off
+echo Starting Pricing Subsystem GUI...
+echo Connecting to MySQL database OOAD...
+
+cd /d "%~dp0\pricing"
+echo Resolving maven dependencies...
+call mvn dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile=cp.txt
+set /p MAVEN_CP=<cp.txt
+
+echo Launching via Java...
+java -Ddb.url=jdbc:mysql://localhost:3306/OOAD -Ddb.username=root -Ddb.password=1977 -cp "target\classes;..\lib\*;..\common\target\classes;..\resources;%MAVEN_CP%" com.pricingos.pricing.gui.PricingSubsystemGUI
+
+pause

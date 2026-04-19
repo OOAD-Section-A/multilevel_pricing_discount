@@ -39,6 +39,12 @@ class BundlePromotionManagerTest {
 
     private BundlePromotionManager manager;
 
+    
+    @org.junit.jupiter.api.AfterEach
+    void clearDaoBulk() {
+        com.pricingos.pricing.db.DaoBulk.clearAll();
+    }
+
     @BeforeEach
     void setUp() {
         manager = new BundlePromotionManager(STUB_CATALOG, FIXED_CLOCK);

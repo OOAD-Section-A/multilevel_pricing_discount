@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run the Pricing Subsystem GUI
+# Script to run the Pricing Subsystem GUI via Maven
 
 echo "Starting Pricing Subsystem GUI..."
 echo "Connecting to MySQL database OOAD..."
@@ -9,5 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "$SCRIPT_DIR/pricing"
 
-java -cp "target/classes:../lib/database-module-1.0.0-SNAPSHOT-standalone.jar:../lib/scm-exception-foundation.jar:../common/target/classes" \
-     com.pricingos.pricing.gui.PricingSubsystemGUI
+echo "Resolving dependencies..."
+mvn dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile=cp.txt
+
+# Extract maven classpath
+MAVEN_CP=$(cat cp.txt)
+
+echo "Launching via Java..."
+java -Ddb.url=jdbc:mysql://localhost:3306/OOAD -Ddb.username=root -Ddb.password=1977 -cp "target/classes:../lib/*:../common/target/classes:../resources:$MAVEN_CP" com.pricingos.pricing.gui.PricingSubsystemGUI

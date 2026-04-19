@@ -37,6 +37,12 @@ class VolumeDiscountManagerTest {
 
     private VolumeDiscountManager manager;
 
+    
+    @org.junit.jupiter.api.AfterEach
+    void clearDaoBulk() {
+        com.pricingos.pricing.db.DaoBulk.clearAll();
+    }
+
     @BeforeEach
     void setUp() {
         manager = new VolumeDiscountManager(STUB_CATALOG);

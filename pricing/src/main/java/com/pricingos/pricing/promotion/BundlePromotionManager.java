@@ -13,12 +13,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pricingos.pricing.db.DaoBulk.BundleDao;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class BundlePromotionManager implements IBundlePromotionService {
 
-    private final Map<String, BundlePromotion> promoById = new ConcurrentHashMap<>();
+    
     private final AtomicInteger idCounter = new AtomicInteger();
     private final ISkuCatalogService skuCatalogService;
     private final Clock clock;
@@ -62,7 +63,7 @@ public class BundlePromotionManager implements IBundlePromotionService {
             endDate
         );
 
-        promoById.put(promoId, promo);
+        BundleDao.save(promo);
         return promoId;
     }
 
@@ -75,7 +76,7 @@ public class BundlePromotionManager implements IBundlePromotionService {
         LocalDate today = LocalDate.now(clock);
         double best = 0.0;
 
-        for (BundlePromotion promo : promoById.values()) {
+        for (BundlePromotion promo : ((java.util.List<BundlePromotion>)(java.util.List)BundleDao.findAll(BundlePromotion.class))) {
             if (promo.isApplicableTo(cartSkuIds, today)) {
                 double discount = promo.computeDiscount(cartTotal);
                 if (discount > best) best = discount;
@@ -87,12 +88,12 @@ public class BundlePromotionManager implements IBundlePromotionService {
     @Override
     public List<String> getActiveBundlePromotions() {
         LocalDate today = LocalDate.now(clock);
-        promoById.values().forEach(promo -> {
+        ((java.util.List<BundlePromotion>)(java.util.List)BundleDao.findAll(BundlePromotion.class)).forEach(promo -> {
             if (promo.isExpiredOn(today)) {
                 promo.markExpired();
             }
         });
-        return promoById.values().stream()
+        return ((java.util.List<BundlePromotion>)(java.util.List)BundleDao.findAll(BundlePromotion.class)).stream()
             .filter(p -> !p.isExpired())
             .filter(p -> !today.isBefore(p.getStartDate()) && !today.isAfter(p.getEndDate()))
             .map(BundlePromotion::getPromoId)

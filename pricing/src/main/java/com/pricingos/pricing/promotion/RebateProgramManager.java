@@ -5,11 +5,12 @@ import com.pricingos.common.ValidationUtils;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pricingos.pricing.db.DaoBulk.RebateDao;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RebateProgramManager implements IRebateService {
 
-    private final Map<String, ProgramState> programRegistry = new ConcurrentHashMap<>();
+    
     private final AtomicInteger idCounter = new AtomicInteger();
 
     @Override
@@ -17,7 +18,7 @@ public class RebateProgramManager implements IRebateService {
                                       double targetSpend, double rebatePct) {
         String programId = "RBT-" + idCounter.incrementAndGet();
         ProgramState program = new ProgramState(programId, customerId, skuId, targetSpend, rebatePct);
-        programRegistry.put(programId, program);
+        RebateDao.save(program);
         return programId;
     }
 
@@ -44,7 +45,7 @@ public class RebateProgramManager implements IRebateService {
 
     private ProgramState getProgram(String programId) {
         String normalizedProgramId = ValidationUtils.requireNonBlank(programId, "programId");
-        ProgramState p = programRegistry.get(normalizedProgramId);
+        ProgramState p = (ProgramState) RebateDao.get(normalizedProgramId, ProgramState.class);
         if (p == null)
             throw new IllegalArgumentException("No rebate programme found with ID: " + normalizedProgramId);
         return p;

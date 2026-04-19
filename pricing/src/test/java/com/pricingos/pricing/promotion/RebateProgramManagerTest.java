@@ -15,6 +15,12 @@ class RebateProgramManagerTest {
 
     private RebateProgramManager manager;
 
+    
+    @org.junit.jupiter.api.AfterEach
+    void clearDaoBulk() {
+        com.pricingos.pricing.db.DaoBulk.clearAll();
+    }
+
     @BeforeEach
     void setUp() {
         manager = new RebateProgramManager();

@@ -8,10 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pricingos.pricing.db.DaoBulk.PolicyDao;
+import java.util.stream.Collectors;
 
 public class DiscountPolicyStore implements IDiscountPolicyService {
 
-    private final Map<String, DiscountPolicy> policyRegistry = new ConcurrentHashMap<>();
+    
     private final boolean strictComplianceMode;
 
     public DiscountPolicyStore(boolean strictComplianceMode) {
@@ -28,12 +30,12 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
             .stackingRule(stackingRule)
             .isActive(true)
             .build();
-        policyRegistry.put(policy.getPolicyId(), policy);
+        PolicyDao.save(policy);
     }
 
     @Override
     public String[] getActivePolicies() {
-        return policyRegistry.values().stream()
+        return PolicyDao.findAll().stream()
             .filter(DiscountPolicy::isActive)
             .sorted(Comparator.comparingInt(DiscountPolicy::getPriorityLevel).reversed())
             .map(DiscountPolicy::getPolicyName)
@@ -48,7 +50,7 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
         }
 
         List<DiscountPolicy> exclusivePolicies = new ArrayList<>();
-        for (DiscountPolicy policy : policyRegistry.values()) {
+        for (DiscountPolicy policy : PolicyDao.findAll()) {
             if (policy.isActive() && "EXCLUSIVE".equalsIgnoreCase(policy.getStackingRule())) {
                 exclusivePolicies.add(policy);
             }
@@ -70,6 +72,6 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
     }
 
     Map<String, DiscountPolicy> getPolicyRegistry() {
-        return Map.copyOf(policyRegistry);
+        return PolicyDao.findAll().stream().collect(Collectors.toMap(DiscountPolicy::getPolicyId, p->p));
     }
 }

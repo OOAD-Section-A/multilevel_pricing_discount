@@ -16,4 +16,4 @@ mvn dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile=cp.txt
 MAVEN_CP=$(cat cp.txt)
 
 echo "Launching via Java..."
-java -Ddb.url=jdbc:mysql://localhost:3306/OOAD -Ddb.username=root -Ddb.password=Moneyplant1 -cp "target/classes:../lib/*:../common/target/classes:../resources:$MAVEN_CP" com.pricingos.pricing.gui.PricingSubsystemGUI
+java -Ddb.url=jdbc:mysql://localhost:3306/OOAD -Ddb.username=root -Ddb.password= -cp "target/classes:../lib/*:../common/target/classes:../resources:$MAVEN_CP" com.pricingos.pricing.gui.PricingSubsystemGUI

@@ -64,6 +64,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <useModulePath>false</useModulePath>
+                    <!-- [Test Safety] Disables MultiLevelPricingSubsystem during mvn test -->
+                    <systemPropertyVariables>
+                        <scm.event.viewer.disabled>true</scm.event.viewer.disabled>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

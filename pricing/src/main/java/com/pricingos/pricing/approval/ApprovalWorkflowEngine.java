@@ -185,7 +185,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         return getRequest(approvalId).getStatus();
     }
 
-    ApprovalRequest getRequestById(String approvalId) {
+    public ApprovalRequest getRequestById(String approvalId) {
         return getRequest(approvalId);
     }
 

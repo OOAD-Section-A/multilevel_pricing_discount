@@ -138,6 +138,7 @@ public class DaoBulk {
             } catch(Exception e){}
         }
         public static Object get(String id, Class<?> cz) { return mockMap.get(id); }
+        public static List<Object> findAll() { return new ArrayList<>(mockMap.values()); }
     }
 
     public static class VolumeDao {

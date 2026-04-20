@@ -52,7 +52,7 @@ public class BundlePromotionManager implements IBundlePromotionService {
             normalizedSkus.add(trimmed);
         }
 
-        String promoId = "BNDL-" + idCounter.incrementAndGet();
+        String promoId = "BNDL-" + java.util.UUID.randomUUID().toString();
 
         BundlePromotion promo = new BundlePromotion(
             promoId,

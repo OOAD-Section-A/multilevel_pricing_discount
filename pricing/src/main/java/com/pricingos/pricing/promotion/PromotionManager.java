@@ -47,7 +47,7 @@ public class PromotionManager implements IPromotionService {
             throw new IllegalArgumentException("PERCENTAGE_OFF discount cannot exceed 100%.");
         }
 
-        String promoId = "PROMO-" + idCounter.incrementAndGet();
+        String promoId = "PROMO-" + java.util.UUID.randomUUID().toString();
         PromotionState promo = new PromotionState(
             promoId,
             name,

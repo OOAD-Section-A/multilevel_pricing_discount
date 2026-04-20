@@ -751,7 +751,7 @@ public class PricingSubsystemGUI extends JFrame {
         inputPanel.add(skuField);
         
         inputPanel.add(new JLabel("Customer ID:"));
-        JTextField customerField = new JTextField("CUST-001");
+        JTextField customerField = new JTextField("CUST-12345");
         inputPanel.add(customerField);
         
         inputPanel.add(new JLabel("Quantity:"));
@@ -762,12 +762,59 @@ public class PricingSubsystemGUI extends JFrame {
         JTextField promoField = new JTextField("SUMMER24");
         inputPanel.add(promoField);
         
+        // Add dropdown to load rebate programs
+        inputPanel.add(new JLabel("Load Rebate Program:"));
+        JComboBox<String> rebateCombo = new JComboBox<>();
+        rebateCombo.addItem("-- Select to Auto-Fill --");
+        inputPanel.add(rebateCombo);
+        
         JButton calculateButton = new JButton("Calculate Price");
         calculateButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
         calculateButton.addActionListener(e -> calculatePrice(skuField, customerField, quantityField, promoField));
         
-        JPanel buttonPanel = new JPanel();
+        JButton refreshRebatesBtn = new JButton("Refresh Rebate List");
+        refreshRebatesBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        refreshRebatesBtn.addActionListener(e -> {
+            rebateCombo.removeAllItems();
+            rebateCombo.addItem("-- Select to Auto-Fill --");
+            java.util.List<Object> programs = com.pricingos.pricing.db.DaoBulk.RebateDao.findAll();
+            for (Object prog : programs) {
+                try {
+                    java.lang.reflect.Field customerIdF = prog.getClass().getDeclaredField("customerId");
+                    java.lang.reflect.Field skuIdF = prog.getClass().getDeclaredField("skuId");
+                    java.lang.reflect.Field programIdF = prog.getClass().getDeclaredField("programId");
+                    customerIdF.setAccessible(true);
+                    skuIdF.setAccessible(true);
+                    programIdF.setAccessible(true);
+                    
+                    String custId = (String) customerIdF.get(prog);
+                    String sku = (String) skuIdF.get(prog);
+                    String progId = (String) programIdF.get(prog);
+                    
+                    String displayText = progId + " (" + custId + " / " + sku + ")";
+                    rebateCombo.addItem(displayText + "|" + custId + "|" + sku);
+                } catch (Exception ex) {
+                    // skip
+                }
+            }
+            log("Rebate program list refreshed");
+        });
+        
+        rebateCombo.addActionListener(e -> {
+            String selected = (String) rebateCombo.getSelectedItem();
+            if (selected != null && selected.contains("|")) {
+                String[] parts = selected.split("\\|");
+                if (parts.length == 3) {
+                    customerField.setText(parts[1]);
+                    skuField.setText(parts[2]);
+                    log("Auto-filled customer and SKU from rebate program");
+                }
+            }
+        });
+        
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
         buttonPanel.add(calculateButton);
+        buttonPanel.add(refreshRebatesBtn);
         
         JPanel topPanel = new JPanel(new BorderLayout(10, 10));
         topPanel.add(inputPanel, BorderLayout.CENTER);

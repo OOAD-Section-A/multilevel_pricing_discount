@@ -22,24 +22,31 @@
         </dependency>
         <dependency>
             <groupId>com.scm</groupId>
-            <artifactId>exception-foundation</artifactId>
-            <version>1.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../lib/scm-exception-foundation.jar</systemPath>
-        </dependency>
-        <dependency>
-            <groupId>com.scm</groupId>
-            <artifactId>handler-exception</artifactId>
-            <version>1.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../lib/handler-exception.jar</systemPath>
-        </dependency>
-        <dependency>
-            <groupId>com.scm</groupId>
             <artifactId>database-module</artifactId>
             <version>1.0.0-SNAPSHOT</version>
             <scope>system</scope>
             <systemPath>${project.basedir}/../lib/database-module-1.0.0-SNAPSHOT-standalone.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.scm</groupId>
+            <artifactId>exception-handler</artifactId>
+            <version>3.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/scm-exception-handler-v3.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.18.1</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/jna-5.18.1.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.18.1</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/jna-platform-5.18.1.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

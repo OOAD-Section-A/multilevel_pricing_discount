@@ -32,6 +32,20 @@ public class PricingSubsystemGUI extends JFrame {
     private com.pricingos.pricing.simulation.CurrencySimulator currencySimulator;
     private com.pricingos.pricing.simulation.RegionalPricingService regionalPricingService;
     private com.pricingos.pricing.simulation.MarketPriceSimulator marketSimulator;
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
     
     private JTabbedPane tabbedPane;
     private JTextArea logArea;
@@ -380,9 +394,11 @@ public class PricingSubsystemGUI extends JFrame {
                     maxUses = Integer.parseInt(maxUsesField.getText());
                 } catch (NumberFormatException nfe) {
                     try {
-                        MultiLevelPricingSubsystem.INSTANCE.onInvalidPromoCode(couponCode);
-                    } catch (ExceptionInInitializerError | NoClassDefFoundError err) {
-                        // Database not available during tests
+                        if (getExceptions() != null) {
+                            exceptions.onInvalidPromoCode(couponCode);
+                        }
+                    } catch (Exception ex) {
+                        // Windows Event Viewer not available on Linux
                     }
                     log("ERROR: Invalid numeric input for promotion creation");
                     JOptionPane.showMessageDialog(this, "Error: Invalid numeric input. Please enter valid numbers for discount value, min cart value, and max uses.",

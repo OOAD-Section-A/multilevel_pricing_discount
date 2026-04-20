@@ -25,7 +25,21 @@ public class PriceListManager {
     private final DbPricePublisher dbPricePublisher;
     private final Map<String, PriceRecord> activePriceCache;
     private String activeRegion;
+    private MultiLevelPricingSubsystem exceptions;
     private Date lastSyncTimestamp;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     public PriceListManager() {
         this(new InMemoryPriceStore(), "GLOBAL", new DbPriceReader(), new DbPricePublisher());
@@ -73,9 +87,11 @@ public class PriceListManager {
                 .filter(record -> record.getStatus() == PriceRecord.Status.ACTIVE)
                 .orElseThrow(() -> {
                     try {
-                        MultiLevelPricingSubsystem.INSTANCE.onBasePriceNotFound(normalizedSku);
-                    } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                        // Database not available during tests
+                        if (getExceptions() != null) {
+                            exceptions.onBasePriceNotFound(normalizedSku);
+                        }
+                    } catch (Exception e) {
+                        // Windows Event Viewer not available on Linux
                     }
                     return new NoSuchElementException(
                         "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "].");

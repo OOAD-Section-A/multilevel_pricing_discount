@@ -15,6 +15,20 @@ public class CustomerTierEngine implements ICustomerTierService {
     private static final long EXTERNAL_FETCH_TIMEOUT_SECONDS = 2L;
     private final IOrderService orderService;
     private final TierEvaluationStrategy tierEvaluationStrategy;
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     public CustomerTierEngine(IOrderService orderService) {
         this(orderService, new SpendBasedTierEvaluationStrategy());
@@ -69,9 +83,11 @@ public class CustomerTierEngine implements ICustomerTierService {
             return;
         } catch (ExecutionException | TimeoutException e) {
             try {
-                MultiLevelPricingSubsystem.INSTANCE.onExternalDataTimeout("OrderService", (int) (EXTERNAL_FETCH_TIMEOUT_SECONDS * 1000));
-            } catch (ExceptionInInitializerError | NoClassDefFoundError err) {
-                // Database not available during tests
+                if (getExceptions() != null) {
+                    exceptions.onExternalDataTimeout("OrderService", (int) (EXTERNAL_FETCH_TIMEOUT_SECONDS * 1000));
+                }
+            } catch (Exception ex) {
+                // Windows Event Viewer not available on Linux
             }
             TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
             return;

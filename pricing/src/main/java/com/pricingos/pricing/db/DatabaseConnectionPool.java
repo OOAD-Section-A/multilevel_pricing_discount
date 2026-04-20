@@ -1,6 +1,5 @@
 package com.pricingos.pricing.db;
 
-import java.io.FileInputStream;
 import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -15,7 +14,10 @@ public class DatabaseConnectionPool {
 
     private DatabaseConnectionPool() {
         Properties props = new Properties();
-        try (InputStream input = new FileInputStream("../resources/database.properties")) {
+        try (InputStream input = DatabaseConnectionPool.class.getClassLoader().getResourceAsStream("database.properties")) {
+            if (input == null) {
+                throw new RuntimeException("database.properties not found in classpath");
+            }
             props.load(input);
             this.url = props.getProperty("db.url", "jdbc:mysql://localhost:3306/OOAD");
             this.username = props.getProperty("db.username", "root");

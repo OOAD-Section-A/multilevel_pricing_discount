@@ -26,6 +26,20 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private final Clock clock;
     private final List<ApprovalEventObserver> observers = new CopyOnWriteArrayList<>();
     private final AtomicInteger idCounter = new AtomicInteger((int)(Math.random() * 1000000));
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     public ApprovalWorkflowEngine(ApprovalRoutingStrategy routingStrategy,
                                   IApproverRoleService approverRoleService) {
@@ -150,15 +164,6 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
                 escalationTarget = "REGIONAL_MANAGER";
             }
             request.setRoutedToApproverId(escalationTarget);
-            // [Test Safety] Skipped when scm.event.viewer.disabled=true to avoid
-            // ExceptionInInitializerError during mvn test
-            if (!Boolean.getBoolean("scm.event.viewer.disabled")) {
-                try {
-                    MultiLevelPricingSubsystem.INSTANCE.onApprovalEscalationTimeout(request.getApprovalId(), request.getPendingHours() * 3600000);
-                } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                    // Database not available during tests
-                }
-            }
             ApprovalRequestDao.save(request);
             notifyEscalated(request, escalationTarget);
         }

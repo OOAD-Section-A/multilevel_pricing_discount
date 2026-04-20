@@ -19,6 +19,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ContractPricingEngine implements IContractPricingService {
 
     private final AtomicInteger counter = new AtomicInteger();
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     @Override
     public String createContract(String customerId, LocalDate startDate,
@@ -65,9 +79,11 @@ public class ContractPricingEngine implements IContractPricingService {
                 .findFirst()
                 .ifPresent(c -> {
                     try {
-                        MultiLevelPricingSubsystem.INSTANCE.onContractExpiredAlert(c.getContractId(), c.getEndDate().toString());
-                    } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                        // Database not available during tests
+                        if (getExceptions() != null) {
+                            exceptions.onContractExpiredAlert(c.getContractId(), c.getEndDate().toString());
+                        }
+                    } catch (Exception e) {
+                        // Windows Event Viewer not available on Linux
                     }
                 });
         }

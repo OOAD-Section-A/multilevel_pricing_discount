@@ -10,6 +10,20 @@ import java.util.concurrent.ThreadLocalRandom;
 public class CurrencySimulator implements IExchangeRateService {
 
     private final Map<String, Double> ratesToInr = new ConcurrentHashMap<>();
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     public CurrencySimulator() {
         ratesToInr.put("INR", 1.0);
@@ -32,9 +46,11 @@ public class CurrencySimulator implements IExchangeRateService {
         Double toToInr = ratesToInr.get(to);
         if (fromToInr == null || toToInr == null) {
             try {
-                MultiLevelPricingSubsystem.INSTANCE.onInvalidPromoCode(from + " -> " + to);
-            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                // Database not available during tests
+                if (getExceptions() != null) {
+                    exceptions.onInvalidPromoCode(from + " -> " + to);
+                }
+            } catch (Exception e) {
+                // Windows Event Viewer not available on Linux
             }
             throw new IllegalArgumentException("Unsupported currency conversion: " + from + " -> " + to);
         }

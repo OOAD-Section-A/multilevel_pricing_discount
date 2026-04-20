@@ -17,6 +17,20 @@ public class BasePriceConfig {
     private final double defaultMarkupPercentage;
     private final String systemCurrency;
     private final PriceListManager priceListManager;
+    private MultiLevelPricingSubsystem exceptions;
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    
+    private MultiLevelPricingSubsystem getExceptions() {
+        if (exceptions == null && IS_WINDOWS) {
+            try {
+                exceptions = MultiLevelPricingSubsystem.INSTANCE;
+            } catch (Exception e) {
+                // Windows Event Viewer initialization failed
+                exceptions = null;
+            }
+        }
+        return exceptions;
+    }
 
     public BasePriceConfig(
             String adminUserId,
@@ -45,9 +59,11 @@ public class BasePriceConfig {
         double priceFloor = cost * PRICE_FLOOR_SAFETY_MARGIN;
         if (!(priceFloor < basePrice)) {
             try {
-                MultiLevelPricingSubsystem.INSTANCE.onPriceFloorConfigError(normalizedSku);
-            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                // Database not available during tests
+                if (getExceptions() != null) {
+                    exceptions.onPriceFloorConfigError(normalizedSku);
+                }
+            } catch (Exception e) {
+                // Windows Event Viewer not available on Linux
             }
             throw new IllegalArgumentException(
                     "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + priceFloor + "] must be strictly less than base price ["
@@ -65,9 +81,11 @@ public class BasePriceConfig {
         double activeBasePrice = priceListManager.getActivePrice(normalizedSku, DEFAULT_REGION, DEFAULT_CHANNEL);
         if (!(floorPrice < activeBasePrice)) {
             try {
-                MultiLevelPricingSubsystem.INSTANCE.onPriceFloorConfigError(normalizedSku);
-            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                // Database not available during tests
+                if (getExceptions() != null) {
+                    exceptions.onPriceFloorConfigError(normalizedSku);
+                }
+            } catch (Exception e) {
+                // Windows Event Viewer not available on Linux
             }
             throw new IllegalArgumentException(
                     "PRICE_FLOOR_CONFIG_ERROR: Price floor [" + floorPrice + "] must be strictly less than base price ["
@@ -86,9 +104,11 @@ public class BasePriceConfig {
         double margin = (price - cost) / price;
         if (margin < 0.0) {
             try {
-                MultiLevelPricingSubsystem.INSTANCE.onNegativeMarginCalculation("unknown", margin);
-            } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
-                // Database not available during tests
+                if (getExceptions() != null) {
+                    exceptions.onNegativeMarginCalculation("unknown", margin);
+                }
+            } catch (Exception e) {
+                // Windows Event Viewer not available on Linux
             }
             throw new IllegalArgumentException(
                     "NEGATIVE_MARGIN_CALCULATION: Base price configuration results in a negative profit margin. "

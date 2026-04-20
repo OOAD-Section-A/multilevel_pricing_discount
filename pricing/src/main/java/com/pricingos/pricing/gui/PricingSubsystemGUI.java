@@ -31,6 +31,7 @@ public class PricingSubsystemGUI extends JFrame {
     private com.pricingos.pricing.simulation.DynamicPricingEngine dynamicPricingEngine;
     private com.pricingos.pricing.simulation.CurrencySimulator currencySimulator;
     private com.pricingos.pricing.simulation.RegionalPricingService regionalPricingService;
+    private com.pricingos.pricing.simulation.MarketPriceSimulator marketSimulator;
     
     private JTabbedPane tabbedPane;
     private JTextArea logArea;
@@ -48,6 +49,7 @@ public class PricingSubsystemGUI extends JFrame {
     private JTable analyticsTable;
     private JLabel totalRevenueDeltaLabel;
     private JTextArea rebateDetailArea;
+    private JTextArea rateArea;
     
     public PricingSubsystemGUI() {
         initializeDatabaseConnection();
@@ -68,7 +70,7 @@ public class PricingSubsystemGUI extends JFrame {
             priceListManager = new com.pricingos.pricing.pricelist.PriceListManager();
             rebateProgramManager = new com.pricingos.pricing.promotion.RebateProgramManager();
             
-            com.pricingos.pricing.simulation.MarketPriceSimulator marketSimulator = new com.pricingos.pricing.simulation.MarketPriceSimulator();
+            marketSimulator = new com.pricingos.pricing.simulation.MarketPriceSimulator();
             dynamicPricingEngine = new com.pricingos.pricing.simulation.DynamicPricingEngine(marketSimulator);
             currencySimulator = new com.pricingos.pricing.simulation.CurrencySimulator();
             regionalPricingService = new com.pricingos.pricing.simulation.RegionalPricingService();
@@ -1580,8 +1582,25 @@ public class PricingSubsystemGUI extends JFrame {
             }
         });
         
-        JPanel btnPanel = new JPanel();
+        JButton tickBtn = new JButton("Simulate Market Change");
+        tickBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        tickBtn.addActionListener(e -> {
+            double newIndex = marketSimulator.tick();
+            String result = String.format(
+                "═══ MARKET SIMULATION ═══\n\n" +
+                "New Market Index: %.4f\n" +
+                "Volatility: ±2%% drift\n\n" +
+                "Market conditions have changed!\n" +
+                "Recalculate pricing with new index.",
+                newIndex
+            );
+            JOptionPane.showMessageDialog(this, result, "Market Update", JOptionPane.INFORMATION_MESSAGE);
+            log("Market simulated: New index = " + String.format("%.4f", newIndex));
+        });
+        
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         btnPanel.add(calculateBtn);
+        btnPanel.add(tickBtn);
         
         JPanel topPanel = new JPanel(new BorderLayout(10, 10));
         topPanel.add(inputPanel, BorderLayout.CENTER);
@@ -1672,7 +1691,32 @@ public class PricingSubsystemGUI extends JFrame {
         nudgeBtn.addActionListener(e -> {
             currencySimulator.nudgeRates();
             log("Market rates fluctuated (±0.5%)");
-            JOptionPane.showMessageDialog(this, "Exchange rates updated to simulate market movement!", "Market Update", JOptionPane.INFORMATION_MESSAGE);
+            String updatedRates = String.format(
+                "═══ UPDATED EXCHANGE RATES (to INR) ═══\n\n" +
+                "USD = %.2f (fluctuated ±0.5%%)\n" +
+                "EUR = %.2f (fluctuated ±0.5%%)\n" +
+                "GBP = %.2f (fluctuated ±0.5%%)\n\n" +
+                "Market has moved! Rates are live.\n" +
+                "Re-convert to see new prices.",
+                currencySimulator.getRate("USD", "INR"),
+                currencySimulator.getRate("EUR", "INR"),
+                currencySimulator.getRate("GBP", "INR")
+            );
+            JOptionPane.showMessageDialog(this, updatedRates, "Market Update", JOptionPane.INFORMATION_MESSAGE);
+            rateArea.setText(
+                "═══ CURRENT EXCHANGE RATES (to INR) ═══\n\n" +
+                "INR = 1.00\n" +
+                String.format("USD = %.2f (fluctuated ±0.5%%)\n", currencySimulator.getRate("USD", "INR")) +
+                String.format("EUR = %.2f (fluctuated ±0.5%%)\n", currencySimulator.getRate("EUR", "INR")) +
+                String.format("GBP = %.2f (fluctuated ±0.5%%)\n\n", currencySimulator.getRate("GBP", "INR")) +
+                "Multi-Currency Management:\n" +
+                "• Support 4 major currencies\n" +
+                "• Real-time rate simulation\n" +
+                "• Market volatility modeling\n" +
+                "• Automatic conversion\n\n" +
+                "Global Strategy:\n" +
+                "Price in local currencies for each region"
+            );
         });
         
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
@@ -1683,7 +1727,7 @@ public class PricingSubsystemGUI extends JFrame {
         topPanel.add(inputPanel, BorderLayout.CENTER);
         topPanel.add(btnPanel, BorderLayout.SOUTH);
         
-        JTextArea rateArea = new JTextArea(
+        rateArea = new JTextArea(
             "═══ CURRENT EXCHANGE RATES (to INR) ═══\n\n" +
             "INR = 1.00\n" +
             "USD = 83.00 (fluctuates ±0.5%)\n" +

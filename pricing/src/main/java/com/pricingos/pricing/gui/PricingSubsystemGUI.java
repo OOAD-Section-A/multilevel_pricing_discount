@@ -139,6 +139,10 @@ public class PricingSubsystemGUI extends JFrame {
             analyticsObserver = new com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver();
             approvalEngine.addObserver(analyticsObserver);
 
+            // Seed demo requests
+            approvalEngine.submitOverrideRequest("SALES_REP_01", com.pricingos.common.ApprovalRequestType.MANUAL_DISCOUNT, "ORD-99881", 150.0, "Competitive price match requested by important client.");
+            approvalEngine.submitOverrideRequest("SALES_REP_02", com.pricingos.common.ApprovalRequestType.POLICY_EXCEPTION, "ORD-99882", 200.0, "Client requested early rebate payment to maintain loyalty.");
+
             log("Initialized subsystem APIs: PromotionManager, RebateProgramManager, PriceListManager, ApprovalWorkflowEngine, AnalyticsObserver");
         } catch (Exception e) {
             log("ERROR initializing subsystem APIs: " + e.getMessage());
@@ -1189,10 +1193,22 @@ public class PricingSubsystemGUI extends JFrame {
         try {
             log("Loading approval requests...");
             approvalTableModel.setRowCount(0);
-            // Note: Approval requests are now maintained in-memory by ApprovalWorkflowEngine.
-            // Database team's PricingAdapter does not expose an API for querying approval requests.
-            // For now, showing empty table. In a full implementation, approval engine would provide a query method.
-            log("Approval requests are maintained in-memory by the workflow engine");
+            
+            java.util.List<String> pendingIds = approvalEngine.getPendingApprovals("MANAGER_123");
+            for (String id : pendingIds) {
+                com.pricingos.pricing.approval.ApprovalRequest req = approvalEngine.getRequestById(id);
+                approvalTableModel.addRow(new Object[]{
+                    req.getApprovalId(),
+                    req.getOrderId(),
+                    req.getRequestType().name(),
+                    req.getRequestedBy(),
+                    "$" + String.format("%.2f", req.getRequestedDiscountAmt()),
+                    req.getJustificationText(),
+                    req.getRoutedToApproverId(),
+                    req.getSubmissionTime().toString(),
+                    req.getStatus().name()
+                });
+            }
         } catch (Exception e) { log("ERROR loading approvals: " + e.getMessage()); }
     }
 

@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableExtensions
 REM Exception Viewer GUI for SCM-Multi-levelPricing
 echo Running Exception Viewer GUI for SCM-Multi-levelPricing...
 echo.
@@ -20,10 +21,20 @@ if defined JAVA_HOME (
     )
 )
 
-REM If JAVA_HOME didn't work, try common Java install locations
+REM If JAVA_HOME didn't work, try PATH
+if %JAVA_FOUND% equ 0 (
+    where java >nul 2>nul
+    if %errorlevel% equ 0 (
+        set "JAVA_CMD=java"
+        set JAVA_FOUND=1
+        echo Using Java from PATH
+    )
+)
+
+REM If PATH didn't work, try common Java install locations
 if %JAVA_FOUND% equ 0 (
     if exist "C:\Program Files\Java\jdk-25\bin\java.exe" (
-        set JAVA_CMD=C:\Program Files\Java\jdk-25\bin\java.exe
+        set "JAVA_CMD=C:\Program Files\Java\jdk-25\bin\java.exe"
         set JAVA_FOUND=1
         echo Found Java at: C:\Program Files\Java\jdk-25
     )
@@ -31,7 +42,7 @@ if %JAVA_FOUND% equ 0 (
 
 if %JAVA_FOUND% equ 0 (
     if exist "C:\Program Files\Java\jdk-17\bin\java.exe" (
-        set JAVA_CMD=C:\Program Files\Java\jdk-17\bin\java.exe
+        set "JAVA_CMD=C:\Program Files\Java\jdk-17\bin\java.exe"
         set JAVA_FOUND=1
         echo Found Java at: C:\Program Files\Java\jdk-17
     )
@@ -39,7 +50,7 @@ if %JAVA_FOUND% equ 0 (
 
 if %JAVA_FOUND% equ 0 (
     if exist "C:\Program Files\Java\jdk-21\bin\java.exe" (
-        set JAVA_CMD=C:\Program Files\Java\jdk-21\bin\java.exe
+        set "JAVA_CMD=C:\Program Files\Java\jdk-21\bin\java.exe"
         set JAVA_FOUND=1
         echo Found Java at: C:\Program Files\Java\jdk-21
     )
@@ -47,7 +58,7 @@ if %JAVA_FOUND% equ 0 (
 
 if %JAVA_FOUND% equ 0 (
     if exist "C:\Program Files\Java\jdk-20\bin\java.exe" (
-        set JAVA_CMD=C:\Program Files\Java\jdk-20\bin\java.exe
+        set "JAVA_CMD=C:\Program Files\Java\jdk-20\bin\java.exe"
         set JAVA_FOUND=1
         echo Found Java at: C:\Program Files\Java\jdk-20
     )
@@ -111,3 +122,5 @@ if %errorlevel% neq 0 (
     echo Error code: %errorlevel%
     pause
 )
+
+endlocal

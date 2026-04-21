@@ -34,9 +34,6 @@ if (-not (Test-Path $libPath)) {
     exit 1
 }
 
-Set-Location $libPath
-
-# Verify all JARs exist
 $jars = @(
     "scm-exception-handler-v3.jar",
     "scm-exception-viewer-gui.jar",
@@ -44,21 +41,28 @@ $jars = @(
     "jna-platform-5.18.1.jar"
 )
 
-Write-Host "Verifying JAR files..."
-foreach ($jar in $jars) {
-    if (-not (Test-Path $jar)) {
-        Write-Host "ERROR: $jar not found"
-        exit 1
+Push-Location $libPath
+try {
+    Write-Host "Verifying JAR files..."
+    foreach ($jar in $jars) {
+        if (-not (Test-Path $jar)) {
+            Write-Host "ERROR: $jar not found"
+            exit 1
+        }
+        Write-Host "  OK: $jar"
     }
-    Write-Host "  OK: $jar"
+
+    Write-Host ""
+    Write-Host "Starting GUI..."
+    Write-Host ""
+
+    $classpath = "." + ";" + ($jars -join ";")
+    & $javaPath -cp $classpath com.scm.gui.ExceptionViewerGUI
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "ERROR: Failed to start Exception Viewer GUI"
+        exit $LASTEXITCODE
+    }
+} finally {
+    Pop-Location
 }
-
-Write-Host ""
-Write-Host "Starting GUI..."
-Write-Host ""
-
-# Build classpath
-$classpath = "." + ";" + ($jars -join ";")
-
-# Run Java
-& $javaPath -cp $classpath com.scm.gui.ExceptionViewerGUI

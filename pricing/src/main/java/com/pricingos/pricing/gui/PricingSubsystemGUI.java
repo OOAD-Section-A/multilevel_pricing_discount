@@ -1,5 +1,6 @@
 package com.pricingos.pricing.gui;
 
+import com.jackfruit.scm.database.adapter.PricingAdapter;
 import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
 import com.jackfruit.scm.database.facade.subsystem.PricingSubsystemFacade;
 import com.jackfruit.scm.database.model.PriceList;
@@ -23,6 +24,7 @@ public class PricingSubsystemGUI extends JFrame {
 
     private SupplyChainDatabaseFacade dbFacade;
     private PricingSubsystemFacade pricingFacade;
+    private PricingAdapter pricingAdapter;
     private com.pricingos.pricing.promotion.PromotionManager promotionManager;
     private com.pricingos.pricing.pricelist.PriceListManager priceListManager;
     private com.pricingos.pricing.approval.ApprovalWorkflowEngine approvalEngine;
@@ -91,6 +93,7 @@ public class PricingSubsystemGUI extends JFrame {
     private JTable analyticsTable;
     private JLabel totalRevenueDeltaLabel;
     private JTextArea rebateDetailArea;
+    private JTextField rebateFilterCustomerField;
     private JTextArea rateArea;
     
     public PricingSubsystemGUI() {
@@ -110,7 +113,7 @@ public class PricingSubsystemGUI extends JFrame {
             };
             promotionManager = new com.pricingos.pricing.promotion.PromotionManager(skuCatalogService);
             priceListManager = new com.pricingos.pricing.pricelist.PriceListManager();
-            rebateProgramManager = new com.pricingos.pricing.promotion.RebateProgramManager();
+            rebateProgramManager = new com.pricingos.pricing.promotion.RebateProgramManager(pricingAdapter);
             
             marketSimulator = new com.pricingos.pricing.simulation.MarketPriceSimulator();
             dynamicPricingEngine = new com.pricingos.pricing.simulation.DynamicPricingEngine(marketSimulator);
@@ -148,6 +151,7 @@ public class PricingSubsystemGUI extends JFrame {
             log("Connecting to database OOAD...");
             dbFacade = new SupplyChainDatabaseFacade();
             pricingFacade = dbFacade.pricing();
+            pricingAdapter = new PricingAdapter(dbFacade);
             log("Database connection established successfully");
         } catch (Exception e) {
             log("ERROR: Failed to connect to database: " + e.getMessage());
@@ -655,7 +659,7 @@ public class PricingSubsystemGUI extends JFrame {
 
         // Active Rebate Programs Section
         JPanel activePanel = new JPanel(new BorderLayout(10, 10));
-        activePanel.setBorder(BorderFactory.createTitledBorder("Active Rebate Programs"));
+        activePanel.setBorder(BorderFactory.createTitledBorder("Active Rebate Programs (Filter by Customer)"));
 
         rebateDetailArea = new JTextArea(10, 80);
         rebateDetailArea.setEditable(false);
@@ -663,19 +667,14 @@ public class PricingSubsystemGUI extends JFrame {
         rebateDetailArea.setBackground(new Color(240, 245, 240));
 
         JButton refreshButton = new JButton("Refresh Programs");
-        refreshButton.addActionListener(e -> {
-            try {
-                refreshRebatePrograms();
-                StringBuilder details = new StringBuilder();
-                details.append("=== ACTIVE REBATE PROGRAMS ===\n\n");
-                // Note: We'll populate this from the database in refreshRebatePrograms()
-                rebateDetailArea.setText(details.toString());
-            } catch (Exception ex) {
-                log("ERROR loading rebate programs: " + ex.getMessage());
-            }
-        });
+        rebateFilterCustomerField = new JTextField(15);
+        rebateFilterCustomerField.setToolTipText("Enter Customer ID to filter (e.g. CUST-12345)");
+        
+        refreshButton.addActionListener(e -> refreshRebatePrograms());
 
-        JPanel refreshButtonPanel = new JPanel();
+        JPanel refreshButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        refreshButtonPanel.add(new JLabel("Customer ID:"));
+        refreshButtonPanel.add(rebateFilterCustomerField);
         refreshButtonPanel.add(refreshButton);
 
         activePanel.add(rebateDetailArea, BorderLayout.CENTER);
@@ -710,57 +709,49 @@ public class PricingSubsystemGUI extends JFrame {
             display.append("║                    ACTIVE REBATE PROGRAMS                             ║\n");
             display.append("╚════════════════════════════════════════════════════════════════════════╝\n\n");
             
-            java.util.List<Object> programs = com.pricingos.pricing.db.DaoBulk.RebateDao.findAll();
+            java.util.List<PricingModels.RebateProgram> programs = java.util.Collections.emptyList();
+            String customerFilter = rebateFilterCustomerField != null ? rebateFilterCustomerField.getText().trim() : "";
             
-            if (programs.isEmpty()) {
-                display.append("No rebate programs found.\n");
+            if (pricingAdapter != null) {
+                if (!customerFilter.isEmpty()) {
+                    programs = pricingAdapter.listRebateProgramsByCustomer(customerFilter);
+                    display.append("Filtered for Customer ID: ").append(customerFilter).append("\n\n");
+                } else {
+                    display.append("Please enter a Customer ID in the filter box below to view active rebate programs.\n");
+                    display.append("(The database adapter does not currently support listing ALL rebate programs globally.)\n\n");
+                }
+            }
+            
+            if (programs.isEmpty() && customerFilter.isEmpty()) {
+                // Already handled above
+            } else if (programs.isEmpty()) {
+                display.append("No active rebate programs found for this customer.\n");
             } else {
                 display.append(String.format("%-12s %-15s %-15s %-15s %-12s %-12s\n", 
                     "Program ID", "Customer", "SKU", "Progress", "Rebate Due", "Status"));
                 display.append("─".repeat(82)).append("\n");
                 
-                for (Object prog : programs) {
-                    try {
-                        // Use reflection to access private fields
-                        java.lang.reflect.Field programIdF = prog.getClass().getDeclaredField("programId");
-                        java.lang.reflect.Field customerIdF = prog.getClass().getDeclaredField("customerId");
-                        java.lang.reflect.Field skuIdF = prog.getClass().getDeclaredField("skuId");
-                        java.lang.reflect.Field targetSpendF = prog.getClass().getDeclaredField("targetSpend");
-                        java.lang.reflect.Field rebatePctF = prog.getClass().getDeclaredField("rebatePct");
-                        java.lang.reflect.Field accumulatedSpendF = prog.getClass().getDeclaredField("accumulatedSpend");
-                        
-                        programIdF.setAccessible(true);
-                        customerIdF.setAccessible(true);
-                        skuIdF.setAccessible(true);
-                        targetSpendF.setAccessible(true);
-                        rebatePctF.setAccessible(true);
-                        accumulatedSpendF.setAccessible(true);
-                        
-                        String programId = (String) programIdF.get(prog);
-                        String customerId = (String) customerIdF.get(prog);
-                        String skuId = (String) skuIdF.get(prog);
-                        double targetSpend = (double) targetSpendF.get(prog);
-                        double rebatePct = (double) rebatePctF.get(prog);
-                        double accumulatedSpend = (double) accumulatedSpendF.get(prog);
-                        
-                        double progressPct = (accumulatedSpend / targetSpend) * 100.0;
-                        boolean targetMet = accumulatedSpend >= targetSpend;
-                        double rebateDue = targetMet ? accumulatedSpend * (rebatePct / 100.0) : 0.0;
-                        String status = targetMet ? "✓ EARNED" : "PENDING";
-                        
-                        String progressStr = String.format("%.0f/%.0f (%.1f%%)", 
-                            accumulatedSpend, targetSpend, progressPct);
-                        
-                        display.append(String.format("%-12s %-15s %-15s %-15s $%-11.2f %s\n",
-                            programId, customerId, skuId, progressStr, rebateDue, status));
-                        
-                        // Add detail line
-                        display.append(String.format("  Target Met: %s | Rebate Rate: %.1f%% | Rebate Due: $%.2f\n\n",
-                            targetMet ? "YES" : "NO", rebatePct, rebateDue));
-                            
-                    } catch (Exception e) {
-                        log("ERROR processing rebate program: " + e.getMessage());
-                    }
+                for (PricingModels.RebateProgram prog : programs) {
+                    String programId = prog.programId();
+                    String customerId = prog.customerId();
+                    String skuId = prog.skuId();
+                    double targetSpend = prog.targetSpend().doubleValue();
+                    double rebatePct = prog.rebatePct().doubleValue();
+                    double accumulatedSpend = prog.accumulatedSpend().doubleValue();
+                    
+                    double progressPct = (accumulatedSpend / targetSpend) * 100.0;
+                    boolean targetMet = accumulatedSpend >= targetSpend;
+                    double rebateDue = targetMet ? accumulatedSpend * rebatePct : 0.0;
+                    String status = targetMet ? "✓ EARNED" : "PENDING";
+                    
+                    String progressStr = String.format("%.0f/%.0f (%.1f%%)", 
+                        accumulatedSpend, targetSpend, progressPct);
+                    
+                    display.append(String.format("%-12s %-15s %-15s %-15s $%-11.2f %s\n",
+                        programId, customerId, skuId, progressStr, rebateDue, status));
+                    
+                    display.append(String.format("  Target Met: %s | Rebate Rate: %.1f%% | Rebate Due: $%.2f\n\n",
+                        targetMet ? "YES" : "NO", rebatePct, rebateDue));
                 }
             }
             
@@ -821,29 +812,27 @@ public class PricingSubsystemGUI extends JFrame {
         JButton refreshRebatesBtn = new JButton("Refresh Rebate List");
         refreshRebatesBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         refreshRebatesBtn.addActionListener(e -> {
+            String customerId = customerField.getText();
             rebateCombo.removeAllItems();
             rebateCombo.addItem("-- Select to Auto-Fill --");
-            java.util.List<Object> programs = com.pricingos.pricing.db.DaoBulk.RebateDao.findAll();
-            for (Object prog : programs) {
-                try {
-                    java.lang.reflect.Field customerIdF = prog.getClass().getDeclaredField("customerId");
-                    java.lang.reflect.Field skuIdF = prog.getClass().getDeclaredField("skuId");
-                    java.lang.reflect.Field programIdF = prog.getClass().getDeclaredField("programId");
-                    customerIdF.setAccessible(true);
-                    skuIdF.setAccessible(true);
-                    programIdF.setAccessible(true);
-                    
-                    String custId = (String) customerIdF.get(prog);
-                    String sku = (String) skuIdF.get(prog);
-                    String progId = (String) programIdF.get(prog);
-                    
-                    String displayText = progId + " (" + custId + " / " + sku + ")";
-                    rebateCombo.addItem(displayText + "|" + custId + "|" + sku);
-                } catch (Exception ex) {
-                    // skip
+            if (pricingAdapter != null && customerId != null && !customerId.trim().isEmpty()) {
+                java.util.List<PricingModels.RebateProgram> programs = pricingAdapter.listRebateProgramsByCustomer(customerId.trim());
+                for (PricingModels.RebateProgram prog : programs) {
+                    try {
+                        String custId = prog.customerId();
+                        String sku = prog.skuId();
+                        String progId = prog.programId();
+                        
+                        String displayText = progId + " (" + custId + " / " + sku + ")";
+                        rebateCombo.addItem(displayText + "|" + custId + "|" + sku);
+                    } catch (Exception ex) {
+                        // skip
+                    }
                 }
+                log("Rebate program list refreshed (from database) for " + customerId);
+            } else {
+                log("Please enter a Customer ID to fetch their rebate programs.");
             }
-            log("Rebate program list refreshed");
         });
         
         rebateCombo.addActionListener(e -> {
@@ -1505,32 +1494,21 @@ public class PricingSubsystemGUI extends JFrame {
             
             // Step 3B: Check Rebate Eligibility
             breakdown.append("=== REBATE PROGRAM STATUS ===\n");
-            java.util.List<Object> rebatePrograms = com.pricingos.pricing.db.DaoBulk.RebateDao.findAll();
+            
+            java.util.List<PricingModels.RebateProgram> rebatePrograms = java.util.Collections.emptyList();
+            if (pricingAdapter != null && customerId != null && !customerId.isEmpty()) {
+                rebatePrograms = pricingAdapter.listRebateProgramsByCustomer(customerId.trim());
+            }
             boolean foundRebateProgram = false;
             
-            for (Object prog : rebatePrograms) {
+            for (PricingModels.RebateProgram prog : rebatePrograms) {
                 try {
-                    java.lang.reflect.Field customerIdF = prog.getClass().getDeclaredField("customerId");
-                    java.lang.reflect.Field skuIdF = prog.getClass().getDeclaredField("skuId");
-                    java.lang.reflect.Field programIdF = prog.getClass().getDeclaredField("programId");
-                    java.lang.reflect.Field targetSpendF = prog.getClass().getDeclaredField("targetSpend");
-                    java.lang.reflect.Field rebatePctF = prog.getClass().getDeclaredField("rebatePct");
-                    java.lang.reflect.Field accumulatedSpendF = prog.getClass().getDeclaredField("accumulatedSpend");
-                    
-                    customerIdF.setAccessible(true);
-                    skuIdF.setAccessible(true);
-                    programIdF.setAccessible(true);
-                    targetSpendF.setAccessible(true);
-                    rebatePctF.setAccessible(true);
-                    accumulatedSpendF.setAccessible(true);
-                    
-                    String progCustomerId = (String) customerIdF.get(prog);
-                    String progSkuId = (String) skuIdF.get(prog);
-                    String programId = (String) programIdF.get(prog);
-                    double targetSpend = (double) targetSpendF.get(prog);
-                    double rebatePct = (double) rebatePctF.get(prog);
-                    double accumulatedSpend = (double) accumulatedSpendF.get(prog);
-                    
+                    String progCustomerId = prog.customerId();
+                    String progSkuId = prog.skuId();
+                    String programId = prog.programId();
+                    double targetSpend = prog.targetSpend().doubleValue();
+                    double rebatePct = prog.rebatePct().doubleValue();
+                    double accumulatedSpend = prog.accumulatedSpend().doubleValue();                    
                     if (progCustomerId.equals(customerId) && progSkuId.equals(skuId)) {
                         foundRebateProgram = true;
                         breakdown.append("Rebate Program Found: ").append(programId).append("\n");

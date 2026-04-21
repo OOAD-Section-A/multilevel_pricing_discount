@@ -18,6 +18,7 @@ import com.pricingos.pricing.approval.ApprovalWorkflowEngine;
 import com.pricingos.pricing.approval.AuditLogObserver;
 import com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver;
 import com.pricingos.pricing.db.DaoBulk;
+import com.pricingos.pricing.demo.PricingDemoDataSeeder;
 import com.pricingos.pricing.exception.PricingExceptionReporter;
 import com.pricingos.pricing.pricelist.PriceListManager;
 import com.pricingos.pricing.promotion.InvalidPromoCodeException;
@@ -64,8 +65,10 @@ public class PricingSubsystemGUI extends JFrame {
     private PromotionManager promotionManager;
     private PriceListManager priceListManager;
     private ApprovalWorkflowEngine approvalEngine;
+    private AuditLogObserver auditLogObserver;
     private ProfitabilityAnalyticsObserver analyticsObserver;
     private RebateProgramManager rebateProgramManager;
+    private PricingDemoDataSeeder demoDataSeeder;
     private DynamicPricingEngine dynamicPricingEngine;
     private CurrencySimulator currencySimulator;
     private RegionalPricingService regionalPricingService;
@@ -95,7 +98,11 @@ public class PricingSubsystemGUI extends JFrame {
         initializeDatabaseConnection();
         initializeSubsystemAPIs();
         initializeUI();
-        loadData();
+        if (shouldSeedDemoDataOnStartup()) {
+            seedDemoData(false);
+        } else {
+            loadData();
+        }
     }
 
     private void initializeSubsystemAPIs() {
@@ -108,10 +115,23 @@ public class PricingSubsystemGUI extends JFrame {
             currencySimulator = new CurrencySimulator();
             regionalPricingService = new RegionalPricingService();
             approvalEngine = createApprovalEngine();
+            auditLogObserver = new AuditLogObserver();
             analyticsObserver = new ProfitabilityAnalyticsObserver();
+            approvalEngine.addObserver(auditLogObserver);
             approvalEngine.addObserver(analyticsObserver);
+            demoDataSeeder = new PricingDemoDataSeeder(
+                pricingAdapter,
+                promotionManager,
+                rebateProgramManager,
+                approvalEngine,
+                analyticsObserver,
+                auditLogObserver,
+                DEFAULT_REQUESTED_BY,
+                DEFAULT_APPROVER_ID,
+                DEFAULT_REJECTION_REASON,
+                this::log);
 
-            log("Initialized subsystem APIs: PromotionManager, RebateProgramManager, PriceListManager, ApprovalWorkflowEngine, AnalyticsObserver");
+            log("Initialized subsystem APIs: PromotionManager, RebateProgramManager, PriceListManager, ApprovalWorkflowEngine, AuditLogObserver, AnalyticsObserver");
         } catch (Exception e) {
             log("ERROR initializing subsystem APIs: " + e.getMessage());
             LOGGER.log(Level.SEVERE, "Failed to initialize subsystem APIs", e);
@@ -285,6 +305,13 @@ public class PricingSubsystemGUI extends JFrame {
             return defaultValue;
         }
         return value.trim();
+    }
+
+    private boolean shouldSeedDemoDataOnStartup() {
+        return Boolean.parseBoolean(resolveSetting(
+            "pricing.seed.demo",
+            "PRICING_SEED_DEMO_DATA",
+            "false"));
     }
 
     private int getSelectedModelRow(JTable table) {
@@ -464,16 +491,59 @@ public class PricingSubsystemGUI extends JFrame {
         
         panel.add(titlePanel, BorderLayout.WEST);
         
+        JButton seedButton = createButton("Seed Demo Data", true);
+        seedButton.setBackground(Color.WHITE);
+        seedButton.addActionListener(e -> seedDemoData(true));
+
         JButton refreshButton = createButton("Refresh All Data", true);
         refreshButton.setBackground(Color.WHITE);
         refreshButton.addActionListener(e -> {
             loadData();
             log("Data refreshed from database");
         });
-        
-        panel.add(refreshButton, BorderLayout.EAST);
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        actionPanel.setOpaque(false);
+        actionPanel.add(seedButton);
+        actionPanel.add(refreshButton);
+
+        panel.add(actionPanel, BorderLayout.EAST);
         
         return panel;
+    }
+
+    private void seedDemoData(boolean interactive) {
+        if (demoDataSeeder == null) {
+            log("ERROR seeding demo data: seeder is not initialized");
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    "Demo data seeder is not initialized.",
+                    "Seed Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
+            return;
+        }
+
+        try {
+            PricingDemoDataSeeder.SeedReport report = demoDataSeeder.seed();
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    report.summary(),
+                    "Demo Data Seeded",
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception exception) {
+            log("ERROR seeding demo data: " + exception.getMessage());
+            LOGGER.log(Level.SEVERE, "Failed to seed demo data", exception);
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    "Error seeding demo data: " + exception.getMessage(),
+                    "Seed Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
+        } finally {
+            loadData();
+        }
     }
     
     private JPanel createPriceListPanel() {

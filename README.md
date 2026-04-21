@@ -57,6 +57,14 @@ Launch the pricing GUI from the repo root:
 java -cp "common/target/classes:pricing/target/classes:lib/*" com.pricingos.pricing.gui.PricingSubsystemGUI
 ```
 
+To launch with end-to-end demo data preloaded into the live GUI session:
+
+```bash
+PRICING_SEED_DEMO_DATA=true ./RUN_GUI.sh
+```
+
+This seeds demo prices, tiers, promotions, rebates, and approval workflow examples through the pricing code and adapters. It does not use direct SQL or manual schema files.
+
 ## Architecture Notes
 
 - Core engine contracts are interface-driven (SOLID DIP):
@@ -107,3 +115,4 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\SCM-Multi-l
 
 - `database_module` bootstraps schema objects only. It does not seed mock pricing rows such as prices, tiers, promotions, approvals, or rebate programs.
 - On a fresh database, the GUI will connect successfully but those tables will be empty until you create records through the pricing UI or another approved subsystem flow.
+- The GUI header now includes a `Seed Demo Data` action for ad hoc end-to-end test setup in the current session.

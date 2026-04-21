@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -26,6 +27,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private final Clock clock;
     private final List<ApprovalEventObserver> observers = new CopyOnWriteArrayList<>();
     private final AtomicInteger idCounter = new AtomicInteger((int)(Math.random() * 1000000));
+    private final ConcurrentHashMap<String, ApprovalRequest> approvalCache = new ConcurrentHashMap<>();
     private MultiLevelPricingSubsystem exceptions;
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
     
@@ -82,7 +84,9 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             throw new IllegalStateException("Routing strategy returned a blank approver ID for request " + approvalId);
         }
         request.setRoutedToApproverId(targetApproverId);
-        ApprovalRequestDao.save(request);
+        // Cache the request in memory. Note: Database team's PricingAdapter 
+        // does not expose an approval request persistence API, so we maintain this cache.
+        approvalCache.put(approvalId, request);
         notifySubmitted(request, targetApproverId);
         return approvalId;
     }
@@ -104,7 +108,8 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         }
 
         request.markAsApproved(approverId);
-        ApprovalRequestDao.save(request);
+        // Update cache - database team's PricingAdapter does not expose approval request persistence API
+        approvalCache.put(approvalId, request);
         notifyApproved(request);
     }
 
@@ -119,14 +124,15 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         }
 
         request.markAsRejected(approverId, reason);
-        ApprovalRequestDao.save(request);
+        // Update cache - database team's PricingAdapter does not expose approval request persistence API
+        approvalCache.put(approvalId, request);
         notifyRejected(request);
     }
 
     @Override
     public List<String> getPendingApprovals(String approverId) {
         ValidationUtils.requireNonBlank(approverId, "approverId");
-        return ApprovalRequestDao.findAll(clock).stream()
+        return approvalCache.values().stream()
             .filter(r -> approverId.equals(r.getRoutedToApproverId()))
             .filter(r -> r.getStatus() == ApprovalStatus.PENDING || r.getStatus() == ApprovalStatus.ESCALATED)
             .map(ApprovalRequest::getApprovalId)
@@ -139,7 +145,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
         List<ApprovalRequest> toEscalate = new ArrayList<>();
         List<ApprovalRequest> toAutoReject = new ArrayList<>();
 
-        for (ApprovalRequest request : ApprovalRequestDao.findAll(clock)) {
+        for (ApprovalRequest request : approvalCache.values()) {
             ApprovalStatus status = request.getStatus();
             if (status == ApprovalStatus.PENDING && request.getPendingHours() >= ESCALATION_THRESHOLD_HOURS) {
                 toEscalate.add(request);
@@ -164,7 +170,8 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
                 escalationTarget = "REGIONAL_MANAGER";
             }
             request.setRoutedToApproverId(escalationTarget);
-            ApprovalRequestDao.save(request);
+            // Update cache - database team's PricingAdapter does not expose approval request persistence API
+            approvalCache.put(request.getApprovalId(), request);
             notifyEscalated(request, escalationTarget);
         }
 
@@ -180,7 +187,8 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             } catch (IllegalStateException ignored) {
                 continue;
             }
-            ApprovalRequestDao.save(request);
+            // Update cache - database team's PricingAdapter does not expose approval request persistence API
+            approvalCache.put(request.getApprovalId(), request);
             notifyRejected(request);
         }
     }
@@ -226,7 +234,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
 
     private ApprovalRequest getRequest(String approvalId) {
         String normalizedId = ValidationUtils.requireNonBlank(approvalId, "approvalId");
-        ApprovalRequest request = ApprovalRequestDao.get(normalizedId, clock);
+        ApprovalRequest request = approvalCache.get(normalizedId);
         if (request == null) {
             throw new IllegalArgumentException("No approval request found with ID: " + normalizedId);
         }

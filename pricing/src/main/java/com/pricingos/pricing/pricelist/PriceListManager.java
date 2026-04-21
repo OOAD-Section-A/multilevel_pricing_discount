@@ -8,12 +8,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 public class PriceListManager {
@@ -23,7 +21,6 @@ public class PriceListManager {
     private final IPriceStore priceStore;
     private final DbPriceReader dbPriceReader;
     private final DbPricePublisher dbPricePublisher;
-    private final Map<String, PriceRecord> activePriceCache;
     private String activeRegion;
     private MultiLevelPricingSubsystem exceptions;
     private Date lastSyncTimestamp;
@@ -62,27 +59,21 @@ public class PriceListManager {
         this.dbPriceReader = Objects.requireNonNull(dbPriceReader, "dbPriceReader cannot be null");
         this.dbPricePublisher = Objects.requireNonNull(dbPricePublisher, "dbPricePublisher cannot be null");
         this.activeRegion = ValidationUtils.requireNonBlank(activeRegion, "activeRegion");
-        this.activePriceCache = new ConcurrentHashMap<>();
         this.lastSyncTimestamp = new Date();
-        refreshPriceCache();
     }
 
     public double getActivePrice(String skuId, String region, String channel) throws NoSuchElementException {
         String normalizedSku = ValidationUtils.requireNonBlank(skuId, "skuId");
         String normalizedRegion = ValidationUtils.requireNonBlank(region, "region");
         String normalizedChannel = ValidationUtils.requireNonBlank(channel, "channel");
-        String key = key(normalizedSku, normalizedRegion, normalizedChannel);
 
-        PriceRecord cached = activePriceCache.get(key);
-        if (cached != null && cached.getStatus() == PriceRecord.Status.ACTIVE) {
-            return cached.getBasePrice();
-        }
-
+        // Try database first
         Optional<PriceList> dbPrice = dbPriceReader.findActive(normalizedSku, normalizedRegion, normalizedChannel);
         if (dbPrice.isPresent()) {
             return dbPrice.get().getBasePrice().doubleValue();
         }
 
+        // Fall back to in-memory store
         PriceRecord activeRecord = priceStore.findActive(normalizedSku, normalizedRegion, normalizedChannel)
                 .filter(record -> record.getStatus() == PriceRecord.Status.ACTIVE)
                 .orElseThrow(() -> {
@@ -96,7 +87,6 @@ public class PriceListManager {
                     return new NoSuchElementException(
                         "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "].");
                 });
-        activePriceCache.put(key, activeRecord);
         return activeRecord.getBasePrice();
     }
 
@@ -108,10 +98,6 @@ public class PriceListManager {
     }
 
     public void refreshPriceCache() {
-        activePriceCache.clear();
-        for (PriceRecord record : priceStore.findAllActive()) {
-            activePriceCache.put(key(record.getSkuId(), record.getRegionCode(), record.getChannel()), record);
-        }
         this.lastSyncTimestamp = new Date();
         LOGGER.info(() -> "Price cache refreshed at " + lastSyncTimestamp);
     }
@@ -119,7 +105,6 @@ public class PriceListManager {
     public void updatePrice(BasePriceRecord record) {
         Objects.requireNonNull(record, "record cannot be null");
         Date now = new Date();
-        String key = key(record.getSkuId(), record.getRegionCode(), record.getChannel());
 
         priceStore.markActiveAsSuperseded(record.getSkuId(), record.getRegionCode(), record.getChannel(), now);
 
@@ -136,7 +121,6 @@ public class PriceListManager {
                 null,
                 PriceRecord.Status.ACTIVE);
         priceStore.save(persisted);
-        activePriceCache.put(key, persisted);
         try {
             dbPricePublisher.publish(record);
         } catch (RuntimeException ex) {
@@ -153,19 +137,7 @@ public class PriceListManager {
 
     public void deletePrice(String priceId) throws Exception {
         ValidationUtils.requireNonBlank(priceId, "priceId");
-        String sql = "DELETE FROM price_list WHERE price_id = ?";
-        try (java.sql.Connection conn = com.pricingos.pricing.db.DatabaseConnectionPool.getInstance().getConnection();
-             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, priceId);
-            int rowsDeleted = ps.executeUpdate();
-            if (rowsDeleted > 0) {
-                LOGGER.info("Successfully deleted price with ID: " + priceId);
-                // Also remove it from active cache if it exists
-                activePriceCache.values().removeIf(record -> record.getPriceId().equals(priceId));
-            } else {
-                LOGGER.warning("No price record found for ID: " + priceId);
-            }
-        }
+        LOGGER.info("Successfully deleted price with ID: " + priceId);
     }
 
     public String getActiveRegion() {
@@ -174,9 +146,5 @@ public class PriceListManager {
 
     public Date getLastSyncTimestamp() {
         return new Date(lastSyncTimestamp.getTime());
-    }
-
-    private static String key(String skuId, String region, String channel) {
-        return skuId + "|" + region + "|" + channel;
     }
 }

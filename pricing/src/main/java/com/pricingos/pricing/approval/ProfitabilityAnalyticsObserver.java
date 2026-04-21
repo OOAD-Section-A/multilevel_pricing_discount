@@ -13,11 +13,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
-import com.pricingos.pricing.db.DaoBulk.AnalyticsDao;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
 public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
-
     
+    private static final Logger LOGGER = Logger.getLogger(ProfitabilityAnalyticsObserver.class.getName());
 
     private final Clock clock;
 
@@ -34,58 +35,70 @@ public class ProfitabilityAnalyticsObserver implements ApprovalEventObserver {
 
     @Override
     public void onRequestApproved(ApprovalRequest request) {
-        AnalyticsDao.save(new ProfitabilityEntry(
+        ProfitabilityEntry entry = new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
             ApprovalStatus.APPROVED,
             LocalDateTime.now(clock)
-        ));
+        );
+        LOGGER.log(Level.INFO, "[ANALYTICS] Approval recorded - " + entry);
     }
 
     @Override
     public void onRequestRejected(ApprovalRequest request) {
-        AnalyticsDao.save(new ProfitabilityEntry(
+        ProfitabilityEntry entry = new ProfitabilityEntry(
             request.getApprovalId(),
             request.getRequestType(),
             request.getRequestedDiscountAmt(),
             ApprovalStatus.REJECTED,
             LocalDateTime.now(clock)
-        ));
+        );
+        LOGGER.log(Level.INFO, "[ANALYTICS] Rejection recorded - " + entry);
     }
 
     @Override
     public void onRequestEscalated(ApprovalRequest request, String escalationTarget) {}
 
+    /**
+     * Returns 0 - analytics are now logged only, not persisted to database.
+     * For persistence, database team needs to provide analytics storage support.
+     */
     public double getApprovedRevenueDelta() {
-        return AnalyticsDao.findAll().stream()
-            .filter(r -> r.finalStatus() == ApprovalStatus.APPROVED)
-            .mapToDouble(ProfitabilityEntry::discountAmount)
-            .sum();
+        LOGGER.log(Level.WARNING, "[ANALYTICS] getApprovedRevenueDelta called but database persistence not available");
+        return 0.0;
     }
 
+    /**
+     * Returns 0 - analytics are now logged only, not persisted to database.
+     */
     public double getRejectedSavings() {
-        return AnalyticsDao.findAll().stream()
-            .filter(r -> r.finalStatus() == ApprovalStatus.REJECTED)
-            .mapToDouble(ProfitabilityEntry::discountAmount)
-            .sum();
+        LOGGER.log(Level.WARNING, "[ANALYTICS] getRejectedSavings called but database persistence not available");
+        return 0.0;
     }
 
+    /**
+     * Returns empty map - analytics are now logged only, not persisted to database.
+     */
     public Map<ApprovalRequestType, DoubleSummaryStatistics> getBreakdownByType() {
-        return AnalyticsDao.findAll().stream().collect(
-            Collectors.groupingBy(
-                ProfitabilityEntry::requestType,
-                Collectors.summarizingDouble(ProfitabilityEntry::discountAmount)
-            )
-        );
+        LOGGER.log(Level.WARNING, "[ANALYTICS] getBreakdownByType called but database persistence not available");
+        return Collections.emptyMap();
     }
 
+    /**
+     * Returns 0 - analytics are now logged only, not persisted to database.
+     */
     public int getTotalDecisions() {
-        return AnalyticsDao.findAll().size();
+        LOGGER.log(Level.WARNING, "[ANALYTICS] getTotalDecisions called but database persistence not available");
+        return 0;
     }
 
+    /**
+     * Returns empty list - analytics are now logged only, not persisted to database.
+     */
     public List<ProfitabilityEntry> getAllRecords() {
-        return AnalyticsDao.findAll();
+        LOGGER.log(Level.WARNING, "[ANALYTICS] getAllRecords called but database persistence not available");
+        return Collections.emptyList();
     }
 
     public record ProfitabilityEntry(

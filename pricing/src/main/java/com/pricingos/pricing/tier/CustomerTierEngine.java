@@ -5,16 +5,20 @@ import com.pricingos.common.ICustomerTierService;
 import com.pricingos.common.IOrderService;
 import com.pricingos.common.ValidationUtils;
 import com.scm.subsystems.MultiLevelPricingSubsystem;
+import com.jackfruit.scm.database.adapter.PricingAdapter;
+import com.jackfruit.scm.database.model.PricingModels.CustomerTierCache;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import com.pricingos.pricing.db.TierDao;
+
 public class CustomerTierEngine implements ICustomerTierService {
     private static final long EXTERNAL_FETCH_TIMEOUT_SECONDS = 2L;
     private final IOrderService orderService;
     private final TierEvaluationStrategy tierEvaluationStrategy;
+    private final PricingAdapter pricingAdapter;
     private MultiLevelPricingSubsystem exceptions;
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
     
@@ -30,28 +34,30 @@ public class CustomerTierEngine implements ICustomerTierService {
         return exceptions;
     }
 
-    public CustomerTierEngine(IOrderService orderService) {
-        this(orderService, new SpendBasedTierEvaluationStrategy());
+    public CustomerTierEngine(IOrderService orderService, PricingAdapter pricingAdapter) {
+        this(orderService, new SpendBasedTierEvaluationStrategy(), pricingAdapter);
     }
 
-    public CustomerTierEngine(IOrderService orderService, TierEvaluationStrategy tierEvaluationStrategy) {
+    public CustomerTierEngine(IOrderService orderService, TierEvaluationStrategy tierEvaluationStrategy, PricingAdapter pricingAdapter) {
         this.orderService = Objects.requireNonNull(orderService, "orderService cannot be null");
         this.tierEvaluationStrategy = Objects.requireNonNull(tierEvaluationStrategy, "tierEvaluationStrategy cannot be null");
+        this.pricingAdapter = Objects.requireNonNull(pricingAdapter, "pricingAdapter cannot be null");
     }
 
 
     public CustomerTier getTier(String customerId) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
-        CustomerTier overridden = TierDao.getOverrideTier(normalizedCustomerId);
-        if (overridden != null) {
-            return overridden;
+        
+        // Check cached tier from database
+        var cached = pricingAdapter.getCustomerTierCache(normalizedCustomerId);
+        if (cached.isPresent()) {
+            return CustomerTier.valueOf(cached.get().tier());
         }
-        CustomerTier evaluated = TierDao.getEvaluatedTier(normalizedCustomerId);
-        return evaluated == null ? CustomerTier.STANDARD : evaluated;
+        
+        return CustomerTier.STANDARD;
     }
 
     @Override
-
     public double getDiscountRate(String customerId) {
         return getTier(customerId).getDiscountRate();
     }
@@ -59,12 +65,11 @@ public class CustomerTierEngine implements ICustomerTierService {
     @Override
     public void evaluateTier(String customerId) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
-        if (TierDao.hasOverride(normalizedCustomerId)) {
-            return;
-        }
 
         if (normalizedCustomerId.startsWith("UNKNOWN")) {
-            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
+            pricingAdapter.createCustomerTierCache(
+                new CustomerTierCache(normalizedCustomerId, CustomerTier.STANDARD.name(), Instant.now())
+            );
             return;
         }
 
@@ -79,7 +84,9 @@ public class CustomerTierEngine implements ICustomerTierService {
                 .get(EXTERNAL_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
+            pricingAdapter.createCustomerTierCache(
+                new CustomerTierCache(normalizedCustomerId, CustomerTier.STANDARD.name(), Instant.now())
+            );
             return;
         } catch (ExecutionException | TimeoutException e) {
             try {
@@ -89,7 +96,9 @@ public class CustomerTierEngine implements ICustomerTierService {
             } catch (Exception ex) {
                 // Windows Event Viewer not available on Linux
             }
-            TierDao.saveEvaluatedTier(normalizedCustomerId, CustomerTier.STANDARD);
+            pricingAdapter.createCustomerTierCache(
+                new CustomerTierCache(normalizedCustomerId, CustomerTier.STANDARD.name(), Instant.now())
+            );
             return;
         }
 
@@ -99,14 +108,19 @@ public class CustomerTierEngine implements ICustomerTierService {
                 annualOrderCount
         );
 
-        TierDao.saveEvaluatedTier(normalizedCustomerId, evaluatedTier);
+        pricingAdapter.createCustomerTierCache(
+            new CustomerTierCache(normalizedCustomerId, evaluatedTier.name(), Instant.now())
+        );
     }
 
     @Override
     public void overrideTier(String customerId, CustomerTier tier) {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         Objects.requireNonNull(tier, "tier cannot be null");
-        TierDao.saveOverrideTier(normalizedCustomerId, tier);
-        TierDao.saveEvaluatedTier(normalizedCustomerId, tier);
+        
+        // Override the tier in cache
+        pricingAdapter.createCustomerTierCache(
+            new CustomerTierCache(normalizedCustomerId, tier.name(), Instant.now())
+        );
     }
 }

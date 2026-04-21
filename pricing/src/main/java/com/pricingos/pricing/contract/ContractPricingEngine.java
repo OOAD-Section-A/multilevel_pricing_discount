@@ -3,6 +3,7 @@ package com.pricingos.pricing.contract;
 import com.pricingos.common.ContractStatus;
 import com.pricingos.common.IContractPricingService;
 import com.pricingos.common.ValidationUtils;
+import com.jackfruit.scm.database.adapter.PricingAdapter;
 import com.scm.subsystems.MultiLevelPricingSubsystem;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -19,8 +20,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ContractPricingEngine implements IContractPricingService {
 
     private final AtomicInteger counter = new AtomicInteger();
+    private final PricingAdapter pricingAdapter;
+    private final ConcurrentHashMap<String, Contract> contractCache = new ConcurrentHashMap<>();
     private MultiLevelPricingSubsystem exceptions;
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+
+    public ContractPricingEngine(PricingAdapter pricingAdapter) {
+        this.pricingAdapter = Objects.requireNonNull(pricingAdapter, "pricingAdapter cannot be null");
+    }
     
     private MultiLevelPricingSubsystem getExceptions() {
         if (exceptions == null && IS_WINDOWS) {
@@ -48,7 +55,11 @@ public class ContractPricingEngine implements IContractPricingService {
             .endDate(endDate)
             .skuPrices(skuPrices)
             .build();
-        ContractDao.save(contract);
+        
+        // Cache the contract in memory. Note: Database team's PricingAdapter 
+        // does not expose a contract persistence API, so we maintain this cache.
+        contractCache.put(id, contract);
+        
         return id;
     }
 
@@ -57,7 +68,7 @@ public class ContractPricingEngine implements IContractPricingService {
         String normalizedCustomerId = ValidationUtils.requireNonBlank(customerId, "customerId");
         String normalizedSkuId = ValidationUtils.requireNonBlank(skuId, "skuId");
         LocalDate today = LocalDate.now();
-        Optional<Double> active = ContractDao.findAll().stream()
+        Optional<Double> active = contractCache.values().stream()
             .filter(c -> c.getCustomerId().equals(normalizedCustomerId) && c.isActiveOn(today))
             .max(Comparator.comparing(Contract::getStartDate).thenComparing(Contract::getContractId))
             .map(c -> c.getPrice(normalizedSkuId));
@@ -66,13 +77,13 @@ public class ContractPricingEngine implements IContractPricingService {
             return active;
         }
 
-        boolean hasExpiredMatch = ContractDao.findAll().stream().anyMatch(c ->
+        boolean hasExpiredMatch = contractCache.values().stream().anyMatch(c ->
             c.getCustomerId().equals(normalizedCustomerId)
                 && c.getPrice(normalizedSkuId) != null
                 && c.getEndDate().isBefore(today));
         if (hasExpiredMatch) {
             // Find the expired contract to get its ID and expiry date
-            ContractDao.findAll().stream()
+            contractCache.values().stream()
                 .filter(c -> c.getCustomerId().equals(normalizedCustomerId)
                     && c.getPrice(normalizedSkuId) != null
                     && c.getEndDate().isBefore(today))
@@ -94,14 +105,16 @@ public class ContractPricingEngine implements IContractPricingService {
     public void submitForApproval(String contractId) {
         Contract c = get(contractId);
         c.submitForApproval();
-        ContractDao.save(c);
+        // Update cache - database team's PricingAdapter does not expose contract persistence API
+        contractCache.put(contractId, c);
     }
 
     @Override
     public void activate(String contractId) {
         Contract c = get(contractId);
         c.activate();
-        ContractDao.save(c);
+        // Update cache - database team's PricingAdapter does not expose contract persistence API
+        contractCache.put(contractId, c);
     }
 
     @Override
@@ -109,7 +122,8 @@ public class ContractPricingEngine implements IContractPricingService {
         Objects.requireNonNull(newEndDate, "newEndDate cannot be null");
         Contract c = get(contractId);
         c.renew(newEndDate);
-        ContractDao.save(c);
+        // Update cache - database team's PricingAdapter does not expose contract persistence API
+        contractCache.put(contractId, c);
     }
 
     @Override
@@ -124,7 +138,7 @@ public class ContractPricingEngine implements IContractPricingService {
         LocalDate today = LocalDate.now();
 
         Set<Double> activePrices = new HashSet<>();
-        for (Contract contract : ContractDao.findAll()) {
+        for (Contract contract : contractCache.values()) {
             if (!contract.getCustomerId().equals(normalizedCustomerId) || !contract.isActiveOn(today)) {
                 continue;
             }
@@ -147,9 +161,10 @@ public class ContractPricingEngine implements IContractPricingService {
         LocalDate today = LocalDate.now();
         LocalDate cutoff = today.plusDays(days);
         List<String> result = new ArrayList<>();
-        for (Contract c : ContractDao.findAll()) {
+        for (Contract c : contractCache.values()) {
             if (c.markExpiringIfDue(today, cutoff)) {
-                ContractDao.save(c);
+                // Update cache - database team's PricingAdapter does not expose contract persistence API
+                contractCache.put(c.getContractId(), c);
                 result.add(c.getContractId());
             }
         }
@@ -159,7 +174,7 @@ public class ContractPricingEngine implements IContractPricingService {
 
     private Contract get(String id) {
         String normalizedId = ValidationUtils.requireNonBlank(id, "contractId");
-        Contract contract = ContractDao.get(normalizedId);
+        Contract contract = contractCache.get(normalizedId);
         if (contract == null) {
             throw new IllegalArgumentException("No contract: " + normalizedId);
         }

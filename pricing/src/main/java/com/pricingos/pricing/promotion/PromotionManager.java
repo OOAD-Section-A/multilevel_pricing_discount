@@ -5,34 +5,34 @@ import com.pricingos.common.IPromotionService;
 import com.pricingos.common.ISkuCatalogService;
 import com.pricingos.common.ValidationUtils;
 import com.pricingos.pricing.promotion.InvalidPromoCodeException.Reason;
+import com.jackfruit.scm.database.adapter.PricingAdapter;
+import com.jackfruit.scm.database.model.PricingModels;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import com.pricingos.pricing.db.DaoBulk.PromoDao;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class PromotionManager implements IPromotionService {
 
     private static final double MAX_PERCENTAGE_VALUE = 100.0;
 
-    private final AtomicInteger idCounter = new AtomicInteger();
-    
     private final ISkuCatalogService skuCatalogService;
     private final Clock clock;
+    private final PricingAdapter pricingAdapter;
 
-    public PromotionManager(ISkuCatalogService skuCatalogService) {
-        this(skuCatalogService, Clock.systemDefaultZone());
+    public PromotionManager(ISkuCatalogService skuCatalogService, PricingAdapter pricingAdapter) {
+        this(skuCatalogService, pricingAdapter, Clock.systemDefaultZone());
     }
 
-    PromotionManager(ISkuCatalogService skuCatalogService, Clock clock) {
+    PromotionManager(ISkuCatalogService skuCatalogService, PricingAdapter pricingAdapter, Clock clock) {
         this.skuCatalogService = Objects.requireNonNull(skuCatalogService, "skuCatalogService cannot be null");
+        this.pricingAdapter = Objects.requireNonNull(pricingAdapter, "pricingAdapter cannot be null");
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
@@ -48,23 +48,30 @@ public class PromotionManager implements IPromotionService {
         }
 
         String promoId = "PROMO-" + java.util.UUID.randomUUID().toString();
-        PromotionState promo = new PromotionState(
+        
+        // Create promotion record for database
+        PricingModels.Promotion promo = new PricingModels.Promotion(
             promoId,
             name,
             normalizedCode,
-            discountType,
-            discountValue,
-            startDate,
-            endDate,
-            normalizedSkuIds,
-            minCartValue,
-            maxUses
+            discountType.name(),
+            BigDecimal.valueOf(discountValue),
+            LocalDateTime.now(),  // startDate as LocalDateTime
+            LocalDateTime.now(),  // endDate as LocalDateTime
+            String.join(",", normalizedSkuIds),
+            BigDecimal.valueOf(minCartValue),
+            maxUses,
+            0  // currentUseCount
         );
 
-        if (PromoDao.getByCode(normalizedCode, PromotionState.class) != null) {
+        // Check for duplicate coupon code in database
+        Optional<PricingModels.Promotion> existing = pricingAdapter.getPromotionByCouponCode(normalizedCode);
+        if (existing.isPresent()) {
             throw new IllegalArgumentException("Coupon code '" + normalizedCode + "' already exists.");
         }
-        PromoDao.save(promo);
+
+        // Persist to database
+        pricingAdapter.createPromotion(promo);
         return promoId;
     }
 
@@ -76,49 +83,59 @@ public class PromotionManager implements IPromotionService {
             throw new IllegalArgumentException("cartTotal must be a non-negative finite number");
         }
 
-        PromotionState promo = findByCouponCode(normalizedCode);
-        if (promo == null) {
+        // Load from database
+        Optional<PricingModels.Promotion> promo = pricingAdapter.getPromotionByCouponCode(normalizedCode);
+        if (promo.isEmpty()) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.NOT_FOUND);
         }
 
-        LocalDate today = LocalDate.now(clock);
-        if (today.isBefore(promo.startDate())) {
+        PricingModels.Promotion promotion = promo.get();
+        LocalDateTime now = LocalDateTime.now(clock);
+        
+        if (now.isBefore(promotion.startDate())) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.NOT_YET_ACTIVE);
         }
-        if (promo.isExpiredOn(today) || promo.expired()) {
+        if (now.isAfter(promotion.endDate()) || promotion.expired()) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.EXPIRED);
         }
-        if (!promo.eligibleSkuIds().contains(normalizedSkuId)) {
+        
+        List<String> eligibleSkus = List.of(promotion.eligibleSkuIds().split(","));
+        if (!eligibleSkus.contains(normalizedSkuId)) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.SKU_NOT_ELIGIBLE);
         }
-        if (cartTotal < promo.minCartValue()) {
+        if (cartTotal < promotion.minCartValue().doubleValue()) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.CART_VALUE_TOO_LOW);
         }
-        if (promo.maxUses() > 0 && promo.currentUseCount() >= promo.maxUses()) {
+        if (promotion.maxUses() > 0 && promotion.currentUseCount() >= promotion.maxUses()) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.MAX_USES_REACHED);
         }
-        return promo.computeDiscountAmount(cartTotal);
+
+        return computeDiscountAmount(promotion.discountType(), promotion.discountValue().doubleValue(), cartTotal);
     }
 
     @Override
     public void recordRedemption(String couponCode) {
         String normalizedCode = ValidationUtils.requireNonBlank(couponCode, "couponCode").toUpperCase();
-        PromotionState promo = findByCouponCode(normalizedCode);
-        if (promo == null) {
+        Optional<PricingModels.Promotion> promo = pricingAdapter.getPromotionByCouponCode(normalizedCode);
+        if (promo.isEmpty()) {
             throw new IllegalArgumentException("No promotion found for coupon code: " + normalizedCode);
         }
-        promo.recordRedemption();
-        PromoDao.save(promo);
+
+        PricingModels.Promotion promotion = promo.get();
+        int newCount = promotion.currentUseCount() + 1;
+        
+        // Update use count in database
+        pricingAdapter.updatePromotionUseCount(promotion.promoId(), newCount);
     }
 
     @Override
     public List<String> getActivePromoCodes() {
-        LocalDate today = LocalDate.now(clock);
-        return ((java.util.List<PromotionState>)(java.util.List)PromoDao.findAll(PromotionState.class)).stream()
+        LocalDateTime now = LocalDateTime.now(clock);
+        return pricingAdapter.listActivePromotions().stream()
             .filter(p -> !p.expired())
-            .filter(p -> !today.isBefore(p.startDate()) && !today.isAfter(p.endDate()))
+            .filter(p -> !now.isBefore(p.startDate()) && !now.isAfter(p.endDate()))
             .filter(p -> p.maxUses() == 0 || p.currentUseCount() < p.maxUses())
-            .map(PromotionState::couponCode)
+            .map(PricingModels.Promotion::couponCode)
             .sorted()
             .collect(Collectors.toList());
     }
@@ -126,20 +143,20 @@ public class PromotionManager implements IPromotionService {
     @Override
     public int getRedemptionCount(String couponCode) {
         String normalizedCode = ValidationUtils.requireNonBlank(couponCode, "couponCode").toUpperCase();
-        PromotionState promo = findByCouponCode(normalizedCode);
-        if (promo == null) {
+        Optional<PricingModels.Promotion> promo = pricingAdapter.getPromotionByCouponCode(normalizedCode);
+        if (promo.isEmpty()) {
             throw new IllegalArgumentException("No promotion found for: " + normalizedCode);
         }
-        return promo.currentUseCount();
+        return promo.get().currentUseCount();
     }
 
     @Override
     public void expireStalePromotions() {
-        LocalDate today = LocalDate.now(clock);
-        ((java.util.List<PromotionState>)(java.util.List)PromoDao.findAll(PromotionState.class)).forEach(promo -> {
-            if (promo.isExpiredOn(today)) {
-                promo.markExpired();
-                PromoDao.save(promo);
+        LocalDateTime now = LocalDateTime.now(clock);
+        pricingAdapter.listActivePromotions().forEach(promo -> {
+            if (now.isAfter(promo.endDate()) && !promo.expired()) {
+                // Mark as expired in database
+                pricingAdapter.updatePromotionExpired(promo.promoId(), true);
             }
         });
     }
@@ -163,117 +180,11 @@ public class PromotionManager implements IPromotionService {
         return normalizedSkuIds;
     }
 
-    private PromotionState findByCouponCode(String normalizedCouponCode) {
-        return (PromotionState) PromoDao.getByCode(normalizedCouponCode, PromotionState.class);
-    }
-
-    private static final class PromotionState {
-        private final String promoId;
-        private final String name;
-        private final String couponCode;
-        private final DiscountType discountType;
-        private final double discountValue;
-        private final LocalDate startDate;
-        private final LocalDate endDate;
-        private final List<String> eligibleSkuIds;
-        private final double minCartValue;
-        private final int maxUses;
-        private int currentUseCount;
-        private boolean expired;
-
-        private PromotionState(String promoId,
-                               String promoName,
-                               String couponCode,
-                               DiscountType discountType,
-                               double discountValue,
-                               LocalDate startDate,
-                               LocalDate endDate,
-                               List<String> eligibleSkuIds,
-                               double minCartValue,
-                               int maxUses) {
-            this.promoId = ValidationUtils.requireNonBlank(promoId, "promoId");
-            this.name = ValidationUtils.requireNonBlank(promoName, "promoName");
-            this.couponCode = ValidationUtils.requireNonBlank(couponCode, "couponCode");
-            this.discountType = Objects.requireNonNull(discountType, "discountType cannot be null");
-            if (!Double.isFinite(discountValue) || discountValue <= 0) {
-                throw new IllegalArgumentException("discountValue must be > 0");
-            }
-            this.discountValue = discountValue;
-            this.startDate = Objects.requireNonNull(startDate, "startDate cannot be null");
-            this.endDate = Objects.requireNonNull(endDate, "endDate cannot be null");
-            if (endDate.isBefore(startDate)) {
-                throw new IllegalArgumentException("endDate cannot be before startDate");
-            }
-            Objects.requireNonNull(eligibleSkuIds, "eligibleSkuIds cannot be null");
-            if (eligibleSkuIds.isEmpty()) {
-                throw new IllegalArgumentException("eligibleSkuIds cannot be empty");
-            }
-            this.eligibleSkuIds = Collections.unmodifiableList(new ArrayList<>(eligibleSkuIds));
-            if (!Double.isFinite(minCartValue) || minCartValue < 0) {
-                throw new IllegalArgumentException("minCartValue must be a non-negative finite number");
-            }
-            if (maxUses < 0) {
-                throw new IllegalArgumentException("maxUses cannot be negative");
-            }
-            this.minCartValue = minCartValue;
-            this.maxUses = maxUses;
-            this.currentUseCount = 0;
-            this.expired = false;
-        }
-
-        private synchronized double computeDiscountAmount(double lineSubtotal) {
-            return switch (discountType) {
-                case PERCENTAGE_OFF -> lineSubtotal * (discountValue / 100.0);
-                case FIXED_AMOUNT -> Math.min(discountValue, lineSubtotal);
-                case BUY_X_GET_Y -> lineSubtotal * (discountValue / 100.0);
-            };
-        }
-
-        private synchronized void recordRedemption() {
-            if (maxUses > 0 && currentUseCount >= maxUses) {
-                throw new IllegalStateException("Promotion " + promoId + " has reached its maximum number of uses (" + maxUses + ").");
-            }
-            currentUseCount++;
-        }
-
-        private synchronized void markExpired() {
-            this.expired = true;
-        }
-
-        private boolean isExpiredOn(LocalDate today) {
-            return today.isAfter(endDate);
-        }
-
-        private String couponCode() {
-            return couponCode;
-        }
-
-        private LocalDate startDate() {
-            return startDate;
-        }
-
-        private LocalDate endDate() {
-            return endDate;
-        }
-
-        private List<String> eligibleSkuIds() {
-            return eligibleSkuIds;
-        }
-
-        private double minCartValue() {
-            return minCartValue;
-        }
-
-        private int maxUses() {
-            return maxUses;
-        }
-
-        private synchronized int currentUseCount() {
-            return currentUseCount;
-        }
-
-        private synchronized boolean expired() {
-            return expired;
-        }
+    private static double computeDiscountAmount(String discountType, double discountValue, double lineSubtotal) {
+        return switch (DiscountType.valueOf(discountType)) {
+            case PERCENTAGE_OFF -> lineSubtotal * (discountValue / 100.0);
+            case FIXED_AMOUNT -> Math.min(discountValue, lineSubtotal);
+            case BUY_X_GET_Y -> lineSubtotal * (discountValue / 100.0);
+        };
     }
 }

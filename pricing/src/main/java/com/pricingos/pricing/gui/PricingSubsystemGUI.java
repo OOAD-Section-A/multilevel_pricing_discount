@@ -111,14 +111,14 @@ public class PricingSubsystemGUI extends JFrame {
                     return java.util.List.of("SKU-APPLE-001", "SKU-BANANA-001", "SKU-ORANGE-001");
                 }
             };
-            promotionManager = new com.pricingos.pricing.promotion.PromotionManager(skuCatalogService);
+            promotionManager = new com.pricingos.pricing.promotion.PromotionManager(skuCatalogService, pricingAdapter);
             priceListManager = new com.pricingos.pricing.pricelist.PriceListManager();
             rebateProgramManager = new com.pricingos.pricing.promotion.RebateProgramManager(pricingAdapter);
             
             marketSimulator = new com.pricingos.pricing.simulation.MarketPriceSimulator();
             dynamicPricingEngine = new com.pricingos.pricing.simulation.DynamicPricingEngine(marketSimulator);
             currencySimulator = new com.pricingos.pricing.simulation.CurrencySimulator();
-            regionalPricingService = new com.pricingos.pricing.simulation.RegionalPricingService();
+            regionalPricingService = new com.pricingos.pricing.simulation.RegionalPricingService(pricingAdapter);
 
             com.pricingos.pricing.approval.ApprovalRoutingStrategy strategy = new com.pricingos.pricing.approval.ApprovalRoutingStrategy() {
                 @Override public String resolveApproverId(com.pricingos.pricing.approval.ApprovalRequest request) { return "MANAGER_123"; }
@@ -1187,21 +1187,12 @@ public class PricingSubsystemGUI extends JFrame {
     }
     private void loadApprovals() {
         try {
-            log("Loading approval requests from database...");
+            log("Loading approval requests...");
             approvalTableModel.setRowCount(0);
-            for (com.pricingos.pricing.approval.ApprovalRequest r : com.pricingos.pricing.approval.ApprovalRequestDao.findAll(null)) {
-                approvalTableModel.addRow(new Object[]{ 
-                    r.getApprovalId(), 
-                    r.getOrderId(), 
-                    r.getRequestType().name(),
-                    r.getRequestedBy(), 
-                    r.getRequestedDiscountAmt(), 
-                    r.getJustificationText(),
-                    r.getRoutedToApproverId(),
-                    r.getSubmissionTime(), 
-                    r.getStatus().name() 
-                });
-            }
+            // Note: Approval requests are now maintained in-memory by ApprovalWorkflowEngine.
+            // Database team's PricingAdapter does not expose an API for querying approval requests.
+            // For now, showing empty table. In a full implementation, approval engine would provide a query method.
+            log("Approval requests are maintained in-memory by the workflow engine");
         } catch (Exception e) { log("ERROR loading approvals: " + e.getMessage()); }
     }
 
@@ -1377,14 +1368,8 @@ public class PricingSubsystemGUI extends JFrame {
             }
             
             details.append("\n═══════════════════════════════════\n");
-            details.append("Audit Log:\n");
-            for (com.pricingos.pricing.approval.AuditLogObserver.AuditEntry audit : com.pricingos.pricing.db.DaoBulk.AuditLogDao.findAll()) {
-                if (audit.approvalId().equals(approvalId)) {
-                    details.append("  [").append(audit.timestamp()).append("] ");
-                    details.append(audit.eventType()).append(" by ").append(audit.actor()).append(": ");
-                    details.append(audit.detail()).append("\n");
-                }
-            }
+            details.append("Note: Audit logs are now available in the application logger.\n");
+            details.append("(Database persistence not available from database team)\n");
             
             JTextArea textArea = new JTextArea(details.toString());
             textArea.setEditable(false);
@@ -1597,10 +1582,17 @@ public class PricingSubsystemGUI extends JFrame {
     }
     
     private void log(String message) {
-        SwingUtilities.invokeLater(() -> {
-            logArea.append("[" + java.time.LocalTime.now() + "] " + message + "\n");
-            logArea.setCaretPosition(logArea.getDocument().getLength());
-        });
+        String logMessage = "[" + java.time.LocalTime.now() + "] " + message;
+        LOGGER.info(logMessage);
+        
+        if (logArea != null) {
+            SwingUtilities.invokeLater(() -> {
+                if (logArea != null) {
+                    logArea.append(logMessage + "\n");
+                    logArea.setCaretPosition(logArea.getDocument().getLength());
+                }
+            });
+        }
     }
     
     private JPanel createDynamicPricingPanel() {

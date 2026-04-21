@@ -53,7 +53,8 @@ class PromotionManagerTest {
     
     @org.junit.jupiter.api.AfterEach
     void clearDaoBulk() {
-        com.pricingos.pricing.db.DaoBulk.clearAll();
+        // Database cleanup handled by database team's facade
+        // com.pricingos.pricing.db.DaoBulk.clearAll();
     }
 
     @BeforeEach

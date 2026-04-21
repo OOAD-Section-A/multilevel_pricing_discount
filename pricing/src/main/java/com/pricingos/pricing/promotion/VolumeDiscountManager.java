@@ -11,20 +11,13 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class VolumeDiscountManager implements IVolumeDiscountService {
 
-    private final AtomicInteger idCounter = new AtomicInteger();
     private final ISkuCatalogService skuCatalogService;
     private final PricingAdapter pricingAdapter;
-    
-    // Local cache for quick lookups: SKU -> ScheduleID
-    private final Map<String, String> skuToScheduleId = new ConcurrentHashMap<>();
 
     public VolumeDiscountManager(ISkuCatalogService skuCatalogService, PricingAdapter pricingAdapter) {
         this.skuCatalogService = Objects.requireNonNull(skuCatalogService, "skuCatalogService cannot be null");
@@ -49,7 +42,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
         // Validate tiers
         VolumeSchedule.validate(tiers);
 
-        String scheduleId = "VOL-" + idCounter.incrementAndGet();
+        String scheduleId = "VOL-" + java.util.UUID.randomUUID().toString();
         
         // Create the VolumeDiscountSchedule record
         VolumeDiscountSchedule schedule = new VolumeDiscountSchedule(scheduleId, normalized);
@@ -69,9 +62,6 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
             pricingAdapter.createVolumeTierRule(dbTier);
         }
         
-        // Cache the mapping for quick lookup
-        skuToScheduleId.put(normalized, scheduleId);
-        
         return scheduleId;
     }
 
@@ -89,21 +79,16 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
             throw new IllegalArgumentException("baseUnitPrice must be a non-negative finite number");
         }
 
-        // Try cache first
-        String scheduleId = skuToScheduleId.get(normalized);
-        if (scheduleId == null) {
-            // Fall back to database lookup - find schedule by SKU
-            List<VolumeDiscountSchedule> allSchedules = pricingAdapter.listVolumeDiscountSchedules();
-            Optional<VolumeDiscountSchedule> scheduleOpt = allSchedules.stream()
-                .filter(s -> s.skuId().equals(normalized))
-                .findFirst();
-                
-            if (scheduleOpt.isEmpty()) {
-                return baseUnitPrice;  // No volume discount for this SKU
-            }
-            scheduleId = scheduleOpt.get().scheduleId();
-            skuToScheduleId.put(normalized, scheduleId);
+        // Query database for schedule by SKU
+        List<VolumeDiscountSchedule> allSchedules = pricingAdapter.listVolumeDiscountSchedules();
+        Optional<VolumeDiscountSchedule> scheduleOpt = allSchedules.stream()
+            .filter(s -> s.skuId().equals(normalized))
+            .findFirst();
+            
+        if (scheduleOpt.isEmpty()) {
+            return baseUnitPrice;  // No volume discount for this SKU
         }
+        String scheduleId = scheduleOpt.get().scheduleId();
         
         // Get the tier rules for this schedule
         List<com.jackfruit.scm.database.model.PricingModels.VolumeTierRule> dbTiers = pricingAdapter.getVolumeTierRules(scheduleId);
@@ -131,11 +116,7 @@ public class VolumeDiscountManager implements IVolumeDiscountService {
         if (normalized.isEmpty()) {
             return false;
         }
-        // Check cache first
-        if (skuToScheduleId.containsKey(normalized)) {
-            return true;
-        }
-        // Query database
+        // Query database only
         List<VolumeDiscountSchedule> allSchedules = pricingAdapter.listVolumeDiscountSchedules();
         return allSchedules.stream().anyMatch(s -> s.skuId().equals(normalized));
     }

@@ -1,5 +1,7 @@
 package com.pricingos.pricing.simulation;
 
+import com.pricingos.db.PricingAdapter;
+import com.jackfruit.scm.database.SupplyChainDatabaseFacade;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +22,11 @@ class SimulationServicesTest {
 
     @Test
     void shouldApplyRegionalAdjustment() {
-        RegionalPricingService service = new RegionalPricingService();
+        // Create a minimal test adapter
+        SupplyChainDatabaseFacade testFacade = new SupplyChainDatabaseFacade();
+        PricingAdapter adapter = new PricingAdapter(testFacade);
+        
+        RegionalPricingService service = new RegionalPricingService(adapter);
         double adjusted = service.applyRegionalPricingAdjustment("SKU-1", 100.0, "SOUTH");
         Assertions.assertTrue(adjusted > 100.0);
     }

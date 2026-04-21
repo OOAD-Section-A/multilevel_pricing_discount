@@ -8,13 +8,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import com.pricingos.pricing.db.DaoBulk.PolicyDao;
 import java.util.stream.Collectors;
 
 public class DiscountPolicyStore implements IDiscountPolicyService {
 
     
     private final boolean strictComplianceMode;
+    private final ConcurrentHashMap<String, DiscountPolicy> policyCache = new ConcurrentHashMap<>();
 
     public DiscountPolicyStore(boolean strictComplianceMode) {
         this.strictComplianceMode = strictComplianceMode;
@@ -30,12 +30,14 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
             .stackingRule(stackingRule)
             .isActive(true)
             .build();
-        PolicyDao.save(policy);
+        // Cache the policy in memory. Note: Database team's PricingAdapter 
+        // does not expose a discount policy persistence API, so we maintain this cache.
+        policyCache.put(policy.getPolicyId(), policy);
     }
 
     @Override
     public String[] getActivePolicies() {
-        return PolicyDao.findAll().stream()
+        return policyCache.values().stream()
             .filter(DiscountPolicy::isActive)
             .sorted(Comparator.comparingInt(DiscountPolicy::getPriorityLevel).reversed())
             .map(DiscountPolicy::getPolicyName)
@@ -50,7 +52,7 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
         }
 
         List<DiscountPolicy> exclusivePolicies = new ArrayList<>();
-        for (DiscountPolicy policy : PolicyDao.findAll()) {
+        for (DiscountPolicy policy : policyCache.values()) {
             if (policy.isActive() && "EXCLUSIVE".equalsIgnoreCase(policy.getStackingRule())) {
                 exclusivePolicies.add(policy);
             }
@@ -72,6 +74,6 @@ public class DiscountPolicyStore implements IDiscountPolicyService {
     }
 
     Map<String, DiscountPolicy> getPolicyRegistry() {
-        return PolicyDao.findAll().stream().collect(Collectors.toMap(DiscountPolicy::getPolicyId, p->p));
+        return policyCache.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue()));
     }
 }

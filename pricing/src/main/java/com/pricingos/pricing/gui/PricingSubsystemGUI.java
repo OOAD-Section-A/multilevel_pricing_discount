@@ -526,6 +526,9 @@ public class PricingSubsystemGUI extends JFrame {
 
         try {
             PricingDemoDataSeeder.SeedReport report = demoDataSeeder.seed();
+            if (rebateFilterCustomerField != null && rebateFilterCustomerField.getText().isBlank()) {
+                rebateFilterCustomerField.setText("DEMO-CUST-001");
+            }
             if (interactive) {
                 JOptionPane.showMessageDialog(this,
                     report.summary(),
@@ -533,11 +536,14 @@ public class PricingSubsystemGUI extends JFrame {
                     JOptionPane.INFORMATION_MESSAGE);
             }
         } catch (Exception exception) {
-            log("ERROR seeding demo data: " + exception.getMessage());
+            String errorDetail = exception.getMessage() == null
+                ? exception.getClass().getSimpleName()
+                : exception.getClass().getSimpleName() + ": " + exception.getMessage();
+            log("ERROR seeding demo data: " + errorDetail);
             LOGGER.log(Level.SEVERE, "Failed to seed demo data", exception);
             if (interactive) {
                 JOptionPane.showMessageDialog(this,
-                    "Error seeding demo data: " + exception.getMessage(),
+                    "Error seeding demo data: " + errorDetail,
                     "Seed Error",
                     JOptionPane.ERROR_MESSAGE);
             }

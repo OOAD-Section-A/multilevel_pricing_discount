@@ -204,18 +204,14 @@ public final class PricingDemoDataSeeder {
                         pricingReference(seed.skuId()),
                         seed.discountAmount(),
                         seed.justification());
-                matchingRequest = approvalEngine.getRequestById(approvalId);
                 if (seed.status() == ApprovalStatus.APPROVED) {
                     approvalEngine.approve(approvalId, approverId);
-                    matchingRequest = approvalEngine.getRequestById(approvalId);
                 } else if (seed.status() == ApprovalStatus.REJECTED) {
                     approvalEngine.reject(approvalId, approverId, rejectionReason);
-                    matchingRequest = approvalEngine.getRequestById(approvalId);
                 }
-                existingRequests.add(matchingRequest);
                 created++;
                 log.accept("Seeded demo approval request for " + seed.skuId()
-                        + " with status " + matchingRequest.getStatus());
+                        + " with status " + seed.status());
                 continue;
             }
 

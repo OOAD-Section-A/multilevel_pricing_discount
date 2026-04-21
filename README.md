@@ -57,10 +57,22 @@ Launch the pricing GUI from the repo root:
 java -cp "common/target/classes:pricing/target/classes:lib/*" com.pricingos.pricing.gui.PricingSubsystemGUI
 ```
 
+Windows launchers:
+
+- `RUN_GUI.bat`
+- `RUN_GUI.ps1`
+
 To launch with end-to-end demo data preloaded into the live GUI session:
 
 ```bash
 PRICING_SEED_DEMO_DATA=true ./RUN_GUI.sh
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:PRICING_SEED_DEMO_DATA = "true"
+.\RUN_GUI.ps1
 ```
 
 This seeds demo prices, tiers, promotions, rebates, and approval workflow examples through the pricing code and adapters. It does not use direct SQL or manual schema files.

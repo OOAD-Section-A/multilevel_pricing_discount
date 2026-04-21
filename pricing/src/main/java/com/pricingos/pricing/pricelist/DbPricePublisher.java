@@ -29,4 +29,10 @@ public class DbPricePublisher {
             ));
         }
     }
+    public void delete(String priceId) {
+        try (SupplyChainDatabaseFacade facade = new SupplyChainDatabaseFacade()) {
+            PricingAdapter adapter = new PricingAdapter(facade);
+            adapter.deletePrice(priceId);
+        }
+    }
 }

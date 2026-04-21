@@ -137,6 +137,7 @@ public class PriceListManager {
 
     public void deletePrice(String priceId) throws Exception {
         ValidationUtils.requireNonBlank(priceId, "priceId");
+        dbPricePublisher.delete(priceId);
         LOGGER.info("Successfully deleted price with ID: " + priceId);
     }
 

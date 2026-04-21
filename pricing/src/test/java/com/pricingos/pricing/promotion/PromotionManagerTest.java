@@ -4,6 +4,8 @@ import com.pricingos.common.DiscountType;
 import com.pricingos.common.ISkuCatalogService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.jackfruit.scm.database.adapter.PricingAdapter;
+import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -59,7 +61,7 @@ class PromotionManagerTest {
 
     @BeforeEach
     void setUp() {
-        manager = new PromotionManager(STUB_CATALOG, FIXED_CLOCK);
+        manager = new PromotionManager(STUB_CATALOG, new PricingAdapter(new SupplyChainDatabaseFacade()), FIXED_CLOCK);
     }
 
     // ── Create promotion ──────────────────────────────────────────────────────────

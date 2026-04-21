@@ -49,6 +49,8 @@ public class PromotionManager implements IPromotionService {
 
         String promoId = "PROMO-" + java.util.UUID.randomUUID().toString();
         
+        String eligibleSkuIdsJson = "[" + normalizedSkuIds.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(",")) + "]";
+
         // Create promotion record for database
         PricingModels.Promotion promo = new PricingModels.Promotion(
             promoId,
@@ -56,9 +58,9 @@ public class PromotionManager implements IPromotionService {
             normalizedCode,
             discountType.name(),
             BigDecimal.valueOf(discountValue),
-            LocalDateTime.now(),  // startDate as LocalDateTime
-            LocalDateTime.now(),  // endDate as LocalDateTime
-            String.join(",", normalizedSkuIds),
+            startDate.atStartOfDay(),
+            endDate.atTime(23, 59, 59),
+            eligibleSkuIdsJson,
             BigDecimal.valueOf(minCartValue),
             maxUses,
             0  // currentUseCount
@@ -99,7 +101,8 @@ public class PromotionManager implements IPromotionService {
             throw new InvalidPromoCodeException(normalizedCode, Reason.EXPIRED);
         }
         
-        List<String> eligibleSkus = List.of(promotion.eligibleSkuIds().split(","));
+        String rawSkus = promotion.eligibleSkuIds().replaceAll("[\\[\\]\"\\s]", "");
+        List<String> eligibleSkus = List.of(rawSkus.split(","));
         if (!eligibleSkus.contains(normalizedSkuId)) {
             throw new InvalidPromoCodeException(normalizedCode, Reason.SKU_NOT_ELIGIBLE);
         }

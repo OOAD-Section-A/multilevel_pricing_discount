@@ -1,7 +1,7 @@
 package com.pricingos.pricing.simulation;
 
-import com.pricingos.db.PricingAdapter;
-import com.jackfruit.scm.database.SupplyChainDatabaseFacade;
+import com.jackfruit.scm.database.adapter.PricingAdapter;
+import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

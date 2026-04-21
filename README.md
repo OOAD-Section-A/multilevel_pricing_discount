@@ -2,12 +2,6 @@
 
 Implementation of the Multi-level Pricing & Discount Management subsystem.
 
-## Current Scope
-
-- Implemented components: 1-8
-- Excluded by decision: component 9 (Invoice & Quote Price Generator)
-- Exception handler v3 with Windows Event Viewer integration enabled
-
 ## Module Layout
 
 - `common/`
@@ -30,12 +24,6 @@ mvn test
 ```
 
 ## Database Integration
-
-- This repo now uses the shared `database_module` JAR through its adapters.
-- The pricing code does not open MySQL directly or run `schema.sql` manually.
-- The DB module bootstraps schema state when `SupplyChainDatabaseFacade` starts.
-
-Set one of the supported DB configurations before launching:
 
 ```bash
 export DB_URL=jdbc:mysql://localhost:3306/OOAD
@@ -122,9 +110,3 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\SCM-Multi-l
 
 **Test behavior:**
 - `mvn test` disables Event Viewer writes with `-Dscm.event.viewer.disabled=true`
-
-## Notes
-
-- `database_module` bootstraps schema objects only. It does not seed mock pricing rows such as prices, tiers, promotions, approvals, or rebate programs.
-- On a fresh database, the GUI will connect successfully but those tables will be empty until you create records through the pricing UI or another approved subsystem flow.
-- The GUI header now includes a `Seed Demo Data` action for ad hoc end-to-end test setup in the current session.

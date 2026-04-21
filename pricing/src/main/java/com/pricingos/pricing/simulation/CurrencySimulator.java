@@ -6,9 +6,12 @@ import com.scm.subsystems.MultiLevelPricingSubsystem;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
 public class CurrencySimulator implements IExchangeRateService {
 
+    private static final Logger LOGGER = Logger.getLogger(CurrencySimulator.class.getName());
     private final Map<String, Double> ratesToInr = new ConcurrentHashMap<>();
     private MultiLevelPricingSubsystem exceptions;
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
@@ -23,6 +26,27 @@ public class CurrencySimulator implements IExchangeRateService {
             }
         }
         return exceptions;
+    }
+    
+    /**
+     * Temporary workaround for logging unregistered exceptions (ID 0).
+     * 
+     * The raise(int id, String name, String message, Severity severity) method 
+     * in MultiLevelPricingSubsystem is currently PRIVATE. This method logs the 
+     * exception locally until exceptions team makes raise() public.
+     * 
+     * TODO: Replace with exceptions.raise(0, name, message, severity) after exceptions team update
+     * 
+     * @param exceptionId Exception type (ID 0 for unregistered)
+     * @param exceptionName Name of the exception type
+     * @param message Detailed error message
+     */
+    private void logUnregistegeredException(int exceptionId, String exceptionName, String message) {
+        String logMessage = String.format(
+            "[UNREGISTERED_EXCEPTION_ID_%d] %s: %s",
+            exceptionId, exceptionName, message
+        );
+        LOGGER.warning(logMessage);
     }
 
     public CurrencySimulator() {
@@ -45,13 +69,11 @@ public class CurrencySimulator implements IExchangeRateService {
         Double fromToInr = ratesToInr.get(from);
         Double toToInr = ratesToInr.get(to);
         if (fromToInr == null || toToInr == null) {
-            try {
-                if (getExceptions() != null) {
-                    exceptions.onInvalidPromoCode(from + " -> " + to);
-                }
-            } catch (Exception e) {
-                // Windows Event Viewer not available on Linux
-            }
+            // TEMPORARY WORKAROUND: Using local logging instead of exceptions.raise(0, ...)
+            // because raise() method is PRIVATE in MultiLevelPricingSubsystem
+            // TODO: Change to exceptions.raise(0, "UNSUPPORTED_CURRENCY_CONVERSION", ...) after exceptions team makes raise() public
+            logUnregistegeredException(0, "UNSUPPORTED_CURRENCY_CONVERSION", 
+                "Currency conversion not supported: " + from + " -> " + to);
             throw new IllegalArgumentException("Unsupported currency conversion: " + from + " -> " + to);
         }
         return fromToInr / toToInr;

@@ -6,7 +6,7 @@ Implementation of the Multi-level Pricing & Discount Management subsystem.
 
 - Implemented components: 1-8
 - Excluded by decision: component 9 (Invoice & Quote Price Generator)
-- Exception foundation dependency is packaged at `lib/scm-exception-foundation.jar`
+- Exception handler v3 with Windows Event Viewer integration enabled
 
 ## Module Layout
 
@@ -42,8 +42,17 @@ mvn test
   - Implementations: `VolumeDiscountStrategy`, `TierDiscountStrategy`, `PromoCodeStrategy`
 
 
-## Exception Foundation Jar
+## Exception Handler System
 
-Use this artifact on classpath:
+The multilevel pricing system includes the updated exception handler v3 with Windows Event Viewer integration:
 
-- `lib/scm-exception-foundation.jar`
+**JAR Dependencies (in `lib/` folder):**
+- `scm-exception-handler-v3.jar` — Main exception handler (logs to Windows Event Viewer)
+- `jna-5.18.1.jar` — JNA library for Event Viewer access
+- `jna-platform-5.18.1.jar` — JNA platform extensions
+
+**Features:**
+- Exceptions logged directly to Windows Event Viewer
+- Graceful degradation on non-Windows systems
+- 8 exception handler methods integrated across pricing components
+- GUI reads exceptions from Event Viewer (via `scm-exception-viewer-gui.jar`)

@@ -39,12 +39,40 @@ public class PricingSubsystemGUI extends JFrame {
         if (exceptions == null && IS_WINDOWS) {
             try {
                 exceptions = MultiLevelPricingSubsystem.INSTANCE;
+                log("DEBUG: Exception handler initialized successfully");
+                LOGGER.info("Exception handler initialized: " + exceptions.getClass().getName());
             } catch (Exception e) {
                 // Windows Event Viewer initialization failed
+                log("DEBUG: Exception handler initialization failed: " + e.getMessage());
+                LOGGER.log(Level.SEVERE, "Failed to initialize exception handler", e);
                 exceptions = null;
             }
+        } else if (!IS_WINDOWS) {
+            log("DEBUG: Not running on Windows - exception handler disabled");
         }
         return exceptions;
+    }
+    
+    /**
+     * Temporary workaround for logging unregistered exceptions (ID 0).
+     * 
+     * The raise(int id, String name, String message, Severity severity) method 
+     * in MultiLevelPricingSubsystem is currently PRIVATE. This method logs the 
+     * exception locally until exceptions team makes raise() public.
+     * 
+     * TODO: Replace with exceptions.raise(0, name, message, severity) after exceptions team update
+     * 
+     * @param exceptionId Exception type (ID 0 for unregistered)
+     * @param exceptionName Name of the exception type
+     * @param message Detailed error message
+     */
+    private void logUnregistegeredException(int exceptionId, String exceptionName, String message) {
+        String logMessage = String.format(
+            "[UNREGISTERED_EXCEPTION_ID_%d] %s: %s",
+            exceptionId, exceptionName, message
+        );
+        LOGGER.warning(logMessage);
+        log("WARNING: " + logMessage);
     }
     
     private JTabbedPane tabbedPane;
@@ -393,16 +421,12 @@ public class PricingSubsystemGUI extends JFrame {
                     minCartValue = Double.parseDouble(minCartField.getText());
                     maxUses = Integer.parseInt(maxUsesField.getText());
                 } catch (NumberFormatException nfe) {
-                    try {
-                        if (getExceptions() != null) {
-                            exceptions.onInvalidPromoCode(couponCode);
-                        }
-                    } catch (Exception ex) {
-                        // Windows Event Viewer not available on Linux
-                    }
+                    // TEMPORARY WORKAROUND: Using local logging instead of exceptions.raise(0, ...)
+                    // because raise() method is PRIVATE in MultiLevelPricingSubsystem
+                    // TODO: Change to exceptions.raise(0, "INVALID_NUMBER_INPUT", ...) after exceptions team makes raise() public
+                    logUnregistegeredException(0, "INVALID_NUMBER_INPUT", 
+                        "Promotion creation input validation failed: " + nfe.getMessage());
                     log("ERROR: Invalid numeric input for promotion creation");
-                    JOptionPane.showMessageDialog(this, "Error: Invalid numeric input. Please enter valid numbers for discount value, min cart value, and max uses.",
-                        "Input Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
@@ -465,9 +489,15 @@ public class PricingSubsystemGUI extends JFrame {
                 JOptionPane.showMessageDialog(this, "Promo code valid!\nDiscount Amount: " + discountAmount,
                     "Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (com.pricingos.pricing.promotion.InvalidPromoCodeException ex) {
-                log("Invalid promo code: " + couponCode + " - Reason: " + ex.getReason());
-                JOptionPane.showMessageDialog(this, "Invalid promo code: " + couponCode + "\nReason: " + ex.getReason(),
-                    "Validation Failed", JOptionPane.WARNING_MESSAGE);
+                try {
+                    if (getExceptions() != null) {
+                        exceptions.onInvalidPromoCode(couponCode);
+                    }
+                } catch (Exception ehEx) {
+                    log("Exception handler error: " + ehEx.getMessage());
+                }
+                // Exception popup already shown by handler; no additional GUI message needed
+                return;
             } catch (Exception ex) {
                 log("ERROR validating promo code: " + ex.getMessage());
                 ex.printStackTrace();

@@ -1,1 +1,1 @@
-/home/akanksh/.m2/repository/com/google/protobuf/protobuf-java/3.25.1/protobuf-java-3.25.1.jar:/home/akanksh/.m2/repository/com/pricingos/common/1.0-SNAPSHOT/common-1.0-SNAPSHOT.jar:/home/akanksh/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
+C:\Users\akash\.m2\repository\com\pricingos\common\1.0-SNAPSHOT\common-1.0-SNAPSHOT.jar;C:\Users\akash\.m2\repository\com\mysql\mysql-connector-j\8.3.0\mysql-connector-j-8.3.0.jar;C:\Users\akash\.m2\repository\com\google\protobuf\protobuf-java\3.25.1\protobuf-java-3.25.1.jar

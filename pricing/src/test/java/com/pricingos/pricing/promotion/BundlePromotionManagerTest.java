@@ -47,7 +47,8 @@ class BundlePromotionManagerTest {
 
     @BeforeEach
     void setUp() {
-        manager = new BundlePromotionManager(STUB_CATALOG, FIXED_CLOCK);
+        com.jackfruit.scm.database.adapter.PricingAdapter adapterMock = org.mockito.Mockito.mock(com.jackfruit.scm.database.adapter.PricingAdapter.class);
+        manager = new BundlePromotionManager(STUB_CATALOG, adapterMock);
     }
 
     // ── Create bundle ─────────────────────────────────────────────────────────────

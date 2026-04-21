@@ -33,6 +33,71 @@ public class ApprovalRequest {
                     String requestedBy, String orderId,
                     double requestedDiscountAmt, String justificationText,
                     Clock clock) {
+        this(approvalId,
+                requestType,
+                requestedBy,
+                orderId,
+                requestedDiscountAmt,
+                justificationText,
+                clock,
+                LocalDateTime.now(Objects.requireNonNull(clock, "clock cannot be null")),
+                ApprovalStatus.PENDING,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null);
+    }
+
+    static ApprovalRequest rehydrate(String approvalId,
+                                     ApprovalRequestType requestType,
+                                     String requestedBy,
+                                     String orderId,
+                                     double requestedDiscountAmt,
+                                     String justificationText,
+                                     Clock clock,
+                                     LocalDateTime submissionTime,
+                                     ApprovalStatus status,
+                                     String routedToApproverId,
+                                     String approvingManagerId,
+                                     LocalDateTime approvalTimestamp,
+                                     LocalDateTime escalationTime,
+                                     boolean auditLogFlag,
+                                     String rejectionReason) {
+        return new ApprovalRequest(
+                approvalId,
+                requestType,
+                requestedBy,
+                orderId,
+                requestedDiscountAmt,
+                justificationText,
+                clock,
+                submissionTime,
+                status,
+                routedToApproverId,
+                approvingManagerId,
+                approvalTimestamp,
+                escalationTime,
+                auditLogFlag,
+                rejectionReason);
+    }
+
+    private ApprovalRequest(String approvalId,
+                            ApprovalRequestType requestType,
+                            String requestedBy,
+                            String orderId,
+                            double requestedDiscountAmt,
+                            String justificationText,
+                            Clock clock,
+                            LocalDateTime submissionTime,
+                            ApprovalStatus status,
+                            String routedToApproverId,
+                            String approvingManagerId,
+                            LocalDateTime approvalTimestamp,
+                            LocalDateTime escalationTime,
+                            boolean auditLogFlag,
+                            String rejectionReason) {
         this.approvalId           = ValidationUtils.requireNonBlank(approvalId, "approvalId");
         this.requestType          = Objects.requireNonNull(requestType, "requestType cannot be null");
         this.requestedBy          = ValidationUtils.requireNonBlank(requestedBy, "requestedBy");
@@ -40,9 +105,14 @@ public class ApprovalRequest {
         this.requestedDiscountAmt = requireFiniteNonNeg(requestedDiscountAmt, "requestedDiscountAmt");
         this.justificationText    = Objects.requireNonNull(justificationText, "justificationText cannot be null");
         this.clock                = Objects.requireNonNull(clock, "clock cannot be null");
-        this.submissionTime       = LocalDateTime.now(clock);
-        this.status               = ApprovalStatus.PENDING;
-        this.auditLogFlag         = false;
+        this.submissionTime       = Objects.requireNonNull(submissionTime, "submissionTime cannot be null");
+        this.status               = Objects.requireNonNull(status, "status cannot be null");
+        this.routedToApproverId   = routedToApproverId;
+        this.approvingManagerId   = approvingManagerId;
+        this.approvalTimestamp    = approvalTimestamp;
+        this.escalationTime       = escalationTime;
+        this.auditLogFlag         = auditLogFlag;
+        this.rejectionReason      = rejectionReason;
     }
 
     synchronized void markAsApproved(String approverId) {

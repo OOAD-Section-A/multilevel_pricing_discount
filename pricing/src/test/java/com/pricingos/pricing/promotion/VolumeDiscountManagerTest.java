@@ -45,8 +45,10 @@ class VolumeDiscountManagerTest {
 
     @BeforeEach
     void setUp() {
-        com.jackfruit.scm.database.adapter.PricingAdapter adapterMock = org.mockito.Mockito.mock(com.jackfruit.scm.database.adapter.PricingAdapter.class);
-        manager = new VolumeDiscountManager(STUB_CATALOG, adapterMock);
+        manager = new VolumeDiscountManager(
+            STUB_CATALOG,
+            new VolumeDiscountManager.InMemoryVolumeStore()
+        );
     }
 
     // ── Create volume promotion ───────────────────────────────────────────────────

@@ -1,128 +1,281 @@
 package com.pricingos.pricing.approval;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.time.Clock;
-import java.util.ArrayList;
-import java.util.List;
-
+import com.jackfruit.scm.database.model.PricingModels.PriceApproval;
 import com.pricingos.common.ApprovalRequestType;
-import com.pricingos.pricing.db.DatabaseConnectionPool;
 import com.pricingos.common.ApprovalStatus;
+import com.pricingos.pricing.db.DatabaseModuleSupport;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class ApprovalRequestDao {
+public final class ApprovalRequestDao {
+
+    interface Store {
+        ApprovalRequest get(String id, Clock clock);
+        List<ApprovalRequest> findAll(Clock clock);
+        void save(ApprovalRequest request);
+        void clear();
+    }
+
+    private static volatile Store store = new AdapterStore();
+
+    private ApprovalRequestDao() {
+    }
 
     public static ApprovalRequest get(String id, Clock testClock) {
-        String sql = "SELECT * FROM approval_requests WHERE approval_id = ?";
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, id);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return map(rs, testClock);
-            }
-        } catch (SQLException e) { throw new RuntimeException(e); }
-        return null;
+        return store.get(id, testClock);
     }
 
     public static List<ApprovalRequest> findAll(Clock testClock) {
-        List<ApprovalRequest> list = new ArrayList<>();
-        String sql = "SELECT * FROM approval_requests";
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) list.add(map(rs, testClock));
-        } catch (SQLException e) { throw new RuntimeException(e); }
-        return list;
+        return store.findAll(testClock);
     }
 
-    public static void save(ApprovalRequest r) {
-        String sql = "INSERT INTO approval_requests (approval_id, request_type, order_id, requested_discount_amt, " +
-            "status, submission_time, escalation_time, approval_timestamp, routed_to_approver_id, approving_manager_id, " +
-            "rejection_reason, audit_log_flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-            "ON DUPLICATE KEY UPDATE request_type=?, order_id=?, requested_discount_amt=?, status=?, submission_time=?, escalation_time=?, approval_timestamp=?, routed_to_approver_id=?, " +
-            "approving_manager_id=?, rejection_reason=?, audit_log_flag=?";
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, r.getApprovalId());
-            ps.setString(2, r.getRequestType().name());
-            ps.setString(3, r.getOrderId());
-            ps.setDouble(4, r.getRequestedDiscountAmt());
-            ps.setString(5, r.getStatus().name());
-            ps.setObject(6, r.getSubmissionTime());
-            ps.setObject(7, r.getEscalationTime());
-            ps.setObject(8, r.getApprovalTimestamp());
-            ps.setString(9, r.getRoutedToApproverId());
-            ps.setString(10, r.getApprovingManagerId());
-            ps.setString(11, r.getRejectionReason());
-            ps.setBoolean(12, r.isAuditLogFlag());
-
-            ps.setString(13, r.getRequestType().name());
-            ps.setString(14, r.getOrderId());
-            ps.setDouble(15, r.getRequestedDiscountAmt());
-            ps.setString(16, r.getStatus().name());
-            ps.setObject(17, r.getSubmissionTime());
-            ps.setObject(18, r.getEscalationTime());
-            ps.setObject(19, r.getApprovalTimestamp());
-            ps.setString(20, r.getRoutedToApproverId());
-            ps.setString(21, r.getApprovingManagerId());
-            ps.setString(22, r.getRejectionReason());
-            ps.setBoolean(23, r.isAuditLogFlag());
-            
-            ps.executeUpdate();
-        } catch (SQLException e) { throw new RuntimeException(e); }
+    public static void save(ApprovalRequest request) {
+        store.save(request);
     }
 
-    private static ApprovalRequest map(ResultSet rs, Clock clock) throws SQLException {
-        ApprovalRequest r = new ApprovalRequest(
-            rs.getString("approval_id"),
-            ApprovalRequestType.valueOf(rs.getString("request_type")),
-            "UNKNOWN",
-            rs.getString("order_id"),
-            rs.getDouble("requested_discount_amt"),
-            "From DB",
-            clock == null ? Clock.systemDefaultZone() : clock
-        );
-        try {
-            java.lang.reflect.Field sf = ApprovalRequest.class.getDeclaredField("status");
-            sf.setAccessible(true);
-            sf.set(r, ApprovalStatus.valueOf(rs.getString("status")));
+    public static void useInMemoryStoreForTests() {
+        store = new InMemoryStore();
+    }
 
-            java.lang.reflect.Field sm = ApprovalRequest.class.getDeclaredField("submissionTime");
-            sm.setAccessible(true);
-            java.sql.Timestamp sts = rs.getTimestamp("submission_time");
-            if (sts != null) sm.set(r, sts.toLocalDateTime());
+    public static void clearStore() {
+        store.clear();
+    }
 
-            java.lang.reflect.Field et = ApprovalRequest.class.getDeclaredField("escalationTime");
-            et.setAccessible(true);
-            java.sql.Timestamp ets = rs.getTimestamp("escalation_time");
-            et.set(r, ets == null ? null : ets.toLocalDateTime());
+    public static void resetJdbcStore() {
+        store = new AdapterStore();
+    }
 
-            java.lang.reflect.Field at = ApprovalRequest.class.getDeclaredField("approvalTimestamp");
-            at.setAccessible(true);
-            java.sql.Timestamp ats = rs.getTimestamp("approval_timestamp");
-            at.set(r, ats == null ? null : ats.toLocalDateTime());
+    private static final class AdapterStore implements Store {
+        private final Map<String, TransientState> transientStateById = new ConcurrentHashMap<>();
 
-            java.lang.reflect.Field rt = ApprovalRequest.class.getDeclaredField("routedToApproverId");
-            rt.setAccessible(true);
-            rt.set(r, rs.getString("routed_to_approver_id"));
-
-            java.lang.reflect.Field am = ApprovalRequest.class.getDeclaredField("approvingManagerId");
-            am.setAccessible(true);
-            am.set(r, rs.getString("approving_manager_id"));
-
-            java.lang.reflect.Field rr = ApprovalRequest.class.getDeclaredField("rejectionReason");
-            rr.setAccessible(true);
-            rr.set(r, rs.getString("rejection_reason"));
-
-            java.lang.reflect.Field al = ApprovalRequest.class.getDeclaredField("auditLogFlag");
-            al.setAccessible(true);
-            al.set(r, rs.getBoolean("audit_log_flag"));
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to map ApprovalRequest via reflection", e);
+        @Override
+        public ApprovalRequest get(String id, Clock clock) {
+            return DatabaseModuleSupport.withPricingAdapter(adapter ->
+                    adapter.getPriceApproval(id)
+                            .map(approval -> map(approval, clock, transientStateById.get(id)))
+                            .orElse(null));
         }
-        return r;
+
+        @Override
+        public List<ApprovalRequest> findAll(Clock clock) {
+            return DatabaseModuleSupport.withPricingAdapter(adapter -> {
+                Map<String, PriceApproval> approvalsById = new LinkedHashMap<>();
+                collectApprovals(approvalsById, adapter.listPendingApprovals());
+                collectApprovals(approvalsById, adapter.listApprovalsByStatus(ApprovalStatus.ESCALATED.name()));
+                collectApprovals(approvalsById, adapter.listApprovalsByStatus(ApprovalStatus.APPROVED.name()));
+                collectApprovals(approvalsById, adapter.listApprovalsByStatus(ApprovalStatus.REJECTED.name()));
+
+                return approvalsById.values().stream()
+                        .map(approval -> map(approval, clock, transientStateById.get(approval.approvalId())))
+                        .sorted(Comparator.comparing(ApprovalRequest::getSubmissionTime)
+                                .thenComparing(ApprovalRequest::getApprovalId))
+                        .toList();
+            });
+        }
+
+        @Override
+        public void save(ApprovalRequest request) {
+            DatabaseModuleSupport.usePricingAdapter(adapter -> {
+                Optional<PriceApproval> existing = adapter.getPriceApproval(request.getApprovalId());
+                if (existing.isPresent()) {
+                    String assignee = currentAssignee(request);
+                    if (assignee != null && !assignee.isBlank()) {
+                        adapter.updatePriceApprovalManager(request.getApprovalId(), assignee);
+                    }
+                    if (!request.getStatus().name().equals(existing.get().approvalStatus())) {
+                        adapter.updatePriceApprovalStatus(request.getApprovalId(), request.getStatus().name());
+                    }
+                } else {
+                    adapter.createPriceApproval(toPriceApproval(request));
+                }
+            });
+            transientStateById.put(request.getApprovalId(), TransientState.from(request));
+        }
+
+        @Override
+        public void clear() {
+            transientStateById.clear();
+        }
+
+        private void collectApprovals(Map<String, PriceApproval> approvalsById, List<PriceApproval> approvals) {
+            for (PriceApproval approval : approvals) {
+                approvalsById.putIfAbsent(approval.approvalId(), approval);
+            }
+        }
+    }
+
+    private static final class InMemoryStore implements Store {
+        private final Map<String, ApprovalRequest> requestsById = new ConcurrentHashMap<>();
+
+        @Override
+        public ApprovalRequest get(String id, Clock clock) {
+            return requestsById.get(id);
+        }
+
+        @Override
+        public List<ApprovalRequest> findAll(Clock clock) {
+            return new ArrayList<>(requestsById.values());
+        }
+
+        @Override
+        public void save(ApprovalRequest request) {
+            requestsById.put(request.getApprovalId(), request);
+        }
+
+        @Override
+        public void clear() {
+            requestsById.clear();
+        }
+    }
+
+    private static PriceApproval toPriceApproval(ApprovalRequest request) {
+        return new PriceApproval(
+                request.getApprovalId(),
+                request.getRequestType().name(),
+                request.getRequestedBy(),
+                BigDecimal.valueOf(request.getRequestedDiscountAmt()),
+                ApprovalRecordCodec.encode(request.getOrderId(), request.getJustificationText()),
+                currentAssignee(request),
+                request.getStatus().name(),
+                resolveTimestamp(request),
+                request.isAuditLogFlag(),
+                request.getSubmissionTime());
+    }
+
+    private static String currentAssignee(ApprovalRequest request) {
+        if (request.getStatus() == ApprovalStatus.APPROVED || request.getStatus() == ApprovalStatus.REJECTED) {
+            return request.getApprovingManagerId();
+        }
+        return request.getRoutedToApproverId();
+    }
+
+    private static LocalDateTime resolveTimestamp(ApprovalRequest request) {
+        if (request.getStatus() == ApprovalStatus.ESCALATED) {
+            return request.getEscalationTime();
+        }
+        if (request.getStatus() == ApprovalStatus.APPROVED || request.getStatus() == ApprovalStatus.REJECTED) {
+            return request.getApprovalTimestamp();
+        }
+        return null;
+    }
+
+    private static ApprovalRequest map(PriceApproval priceApproval, Clock clock, TransientState transientState) {
+        ApprovalRecordCodec.DecodedApproval decoded = ApprovalRecordCodec.decode(priceApproval.justificationText());
+        ApprovalStatus status = ApprovalStatus.valueOf(priceApproval.approvalStatus());
+        String routedToApproverId = transientState == null ? null : transientState.routedToApproverId();
+        if (routedToApproverId == null
+                && (status == ApprovalStatus.PENDING || status == ApprovalStatus.ESCALATED)) {
+            routedToApproverId = priceApproval.approvingManagerId();
+        }
+
+        String approvingManagerId = null;
+        if (status == ApprovalStatus.APPROVED || status == ApprovalStatus.REJECTED) {
+            approvingManagerId = priceApproval.approvingManagerId();
+        } else if (transientState != null) {
+            approvingManagerId = transientState.approvingManagerId();
+        }
+
+        LocalDateTime escalationTime = status == ApprovalStatus.ESCALATED ? priceApproval.approvalTimestamp() : null;
+        LocalDateTime approvalTimestamp =
+                (status == ApprovalStatus.APPROVED || status == ApprovalStatus.REJECTED)
+                        ? priceApproval.approvalTimestamp()
+                        : null;
+        String rejectionReason = null;
+        boolean auditLogFlag = priceApproval.auditLogFlag();
+        if (transientState != null) {
+            if (transientState.escalationTime() != null) {
+                escalationTime = transientState.escalationTime();
+            }
+            if (transientState.approvalTimestamp() != null) {
+                approvalTimestamp = transientState.approvalTimestamp();
+            }
+            rejectionReason = transientState.rejectionReason();
+            auditLogFlag = transientState.auditLogFlag();
+        }
+
+        return ApprovalRequest.rehydrate(
+                priceApproval.approvalId(),
+                ApprovalRequestType.valueOf(priceApproval.requestType()),
+                priceApproval.requestedBy(),
+                decoded.orderId(),
+                priceApproval.requestedDiscountAmount().doubleValue(),
+                decoded.justificationText(),
+                clock == null ? Clock.systemDefaultZone() : clock,
+                priceApproval.createdAt(),
+                status,
+                routedToApproverId,
+                approvingManagerId,
+                approvalTimestamp,
+                escalationTime,
+                auditLogFlag,
+                rejectionReason);
+    }
+
+    private record TransientState(
+            String routedToApproverId,
+            String approvingManagerId,
+            LocalDateTime escalationTime,
+            LocalDateTime approvalTimestamp,
+            String rejectionReason,
+            boolean auditLogFlag) {
+
+        private static TransientState from(ApprovalRequest request) {
+            return new TransientState(
+                    request.getRoutedToApproverId(),
+                    request.getApprovingManagerId(),
+                    request.getEscalationTime(),
+                    request.getApprovalTimestamp(),
+                    request.getRejectionReason(),
+                    request.isAuditLogFlag());
+        }
+    }
+
+    private static final class ApprovalRecordCodec {
+        private static final String PREFIX = "MLPAPPROVAL:";
+
+        private ApprovalRecordCodec() {
+        }
+
+        private static String encode(String orderId, String justificationText) {
+            return PREFIX
+                    + encodePart(orderId)
+                    + ":"
+                    + encodePart(justificationText);
+        }
+
+        private static DecodedApproval decode(String storedText) {
+            if (storedText == null || !storedText.startsWith(PREFIX)) {
+                return new DecodedApproval("UNKNOWN", storedText == null ? "" : storedText);
+            }
+
+            String payload = storedText.substring(PREFIX.length());
+            String[] parts = payload.split(":", 2);
+            if (parts.length != 2) {
+                return new DecodedApproval("UNKNOWN", storedText);
+            }
+            return new DecodedApproval(decodePart(parts[0]), decodePart(parts[1]));
+        }
+
+        private static String encodePart(String value) {
+            return Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        }
+
+        private static String decodePart(String value) {
+            return new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
+        }
+
+        private record DecodedApproval(String orderId, String justificationText) {
+        }
     }
 }

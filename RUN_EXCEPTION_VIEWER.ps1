@@ -1,13 +1,29 @@
 # Run Exception Viewer GUI for SCM-Multi-levelPricing
 Write-Host "Starting Exception Viewer GUI for SCM-Multi-levelPricing..."
 Write-Host ""
+Write-Host "Note: run the Event Viewer source registration command once as Administrator before first use."
+Write-Host ""
 
-# Set Java path
-$javaPath = "C:\Program Files\Java\jdk-25\bin\java.exe"
+# Resolve Java
+$candidateJavaPaths = @()
+if ($env:JAVA_HOME) {
+    $candidateJavaPaths += (Join-Path $env:JAVA_HOME "bin\java.exe")
+}
+$candidateJavaPaths += @(
+    "C:\Program Files\Java\jdk-25\bin\java.exe",
+    "C:\Program Files\Java\jdk-21\bin\java.exe",
+    "C:\Program Files\Java\jdk-17\bin\java.exe"
+)
 
-# Verify Java exists
-if (-not (Test-Path $javaPath)) {
-    Write-Host "ERROR: Java not found at $javaPath"
+$javaPath = $candidateJavaPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $javaPath) {
+    $javaCommand = Get-Command java -ErrorAction SilentlyContinue
+    if ($javaCommand) {
+        $javaPath = $javaCommand.Source
+    }
+}
+if (-not $javaPath) {
+    Write-Host "ERROR: Java not found. Set JAVA_HOME or install Java 17+."
     exit 1
 }
 

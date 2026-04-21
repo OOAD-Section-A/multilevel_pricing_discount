@@ -2,6 +2,11 @@
 REM Exception Viewer GUI for SCM-Multi-levelPricing
 echo Running Exception Viewer GUI for SCM-Multi-levelPricing...
 echo.
+echo Note: Run the Event Viewer source registration command once as Administrator before first use.
+echo.
+
+set SCRIPT_DIR=%~dp0
+set LIB_DIR=%SCRIPT_DIR%lib
 
 REM Try to find Java installation
 set JAVA_FOUND=0
@@ -55,7 +60,7 @@ if %JAVA_FOUND% equ 0 (
 )
 
 REM Navigate to lib folder where JARs are located
-cd /d lib
+cd /d "%LIB_DIR%"
 if %errorlevel% neq 0 (
     echo ERROR: Could not navigate to lib folder
     pause

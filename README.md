@@ -29,6 +29,34 @@ Implementation of the Multi-level Pricing & Discount Management subsystem.
 mvn test
 ```
 
+## Database Integration
+
+- This repo now uses the shared `database_module` JAR through its adapters.
+- The pricing code does not open MySQL directly or run `schema.sql` manually.
+- The DB module bootstraps schema state when `SupplyChainDatabaseFacade` starts.
+
+Set one of the supported DB configurations before launching:
+
+```bash
+export DB_URL=jdbc:mysql://localhost:3306/OOAD
+export DB_USERNAME=root
+export DB_PASSWORD=your_password
+```
+
+## Run
+
+Build the modules:
+
+```bash
+mvn -q -DskipTests package
+```
+
+Launch the pricing GUI from the repo root:
+
+```bash
+java -cp "common/target/classes:pricing/target/classes:lib/*" com.pricingos.pricing.gui.PricingSubsystemGUI
+```
+
 ## Architecture Notes
 
 - Core engine contracts are interface-driven (SOLID DIP):
@@ -47,12 +75,35 @@ mvn test
 The multilevel pricing system includes the updated exception handler v3 with Windows Event Viewer integration:
 
 **JAR Dependencies (in `lib/` folder):**
-- `scm-exception-handler-v3.jar` — Main exception handler (logs to Windows Event Viewer)
-- `jna-5.18.1.jar` — JNA library for Event Viewer access
-- `jna-platform-5.18.1.jar` — JNA platform extensions
+- `scm-exception-handler-v3.jar` - Main exception handler (logs to Windows Event Viewer)
+- `scm-exception-viewer-gui.jar` - Exception viewer GUI (reads from Windows Event Viewer)
+- `jna-5.18.1.jar` - JNA library for Event Viewer access
+- `jna-platform-5.18.1.jar` - JNA platform extensions
+
+**One-time Windows setup:**
+
+Run this once as Administrator so Event Viewer can register the pricing source:
+
+```bat
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\SCM-Multi-levelPricing" /v EventMessageFile /t REG_SZ /d "%SystemRoot%\System32\EventCreate.exe" /f
+```
 
 **Features:**
 - Exceptions logged directly to Windows Event Viewer
+- Exception data is not stored in the database
 - Graceful degradation on non-Windows systems
-- 8 exception handler methods integrated across pricing components
-- GUI reads exceptions from Event Viewer (via `scm-exception-viewer-gui.jar`)
+- Pricing exception methods are integrated across the pricing components
+- Unregistered pricing errors use handler ID `0`
+- Exception viewer GUI reads exceptions from Event Viewer
+
+**Viewer launchers:**
+- `RUN_EXCEPTION_VIEWER.bat`
+- `RUN_EXCEPTION_VIEWER.ps1`
+
+**Test behavior:**
+- `mvn test` disables Event Viewer writes with `-Dscm.event.viewer.disabled=true`
+
+## Notes
+
+- `database_module` bootstraps schema objects only. It does not seed mock pricing rows such as prices, tiers, promotions, approvals, or rebate programs.
+- On a fresh database, the GUI will connect successfully but those tables will be empty until you create records through the pricing UI or another approved subsystem flow.

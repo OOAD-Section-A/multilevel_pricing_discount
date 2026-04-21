@@ -10,9 +10,9 @@ import com.pricingos.common.OrderLineItem;
 import com.pricingos.common.PriceResult;
 import com.pricingos.common.PricingOverrideRequest;
 import com.pricingos.common.ValidationUtils;
+import com.pricingos.pricing.exception.PricingExceptionReporter;
 import com.pricingos.pricing.pricelist.IPriceStore;
 import com.pricingos.pricing.pricelist.PriceRecord;
-import com.scm.subsystems.MultiLevelPricingSubsystem;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -33,20 +33,6 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     private final IFloorPriceService floorPriceService;
     private final List<IDiscountStrategy> strategies;
     private final int maxStackableDiscounts;
-    private MultiLevelPricingSubsystem exceptions;
-    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-    
-    private MultiLevelPricingSubsystem getExceptions() {
-        if (exceptions == null && IS_WINDOWS) {
-            try {
-                exceptions = MultiLevelPricingSubsystem.INSTANCE;
-            } catch (Exception e) {
-                // Windows Event Viewer initialization failed
-                exceptions = null;
-            }
-        }
-        return exceptions;
-    }
 
     public DiscountRulesEngine(
             IPriceStore priceStore,
@@ -98,13 +84,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
     private PriceResult calculatePriceForLineItem(OrderLineItem item, String customerId) {
         double basePrice = fetchBasePrice(item);
         if (contractPricingService.hasContractConflict(customerId, item.getSkuId())) {
-            try {
-                if (getExceptions() != null) {
-                    exceptions.onDuplicateContractConflict(customerId, item.getSkuId());
-                }
-            } catch (Exception e) {
-                // Windows Event Viewer not available on Linux
-            }
+            PricingExceptionReporter.duplicateContractConflict(customerId, item.getSkuId());
             throw new IllegalStateException(
                 "DUPLICATE_CONTRACT_CONFLICT: Multiple active contracts with conflicting prices for customer "
                     + customerId + " and SKU " + item.getSkuId());
@@ -134,13 +114,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         }
 
         if (!appliedDiscounts.isEmpty() && !policyStore.validateCompliance(appliedDiscounts.toArray(new String[0]))) {
-            try {
-                if (getExceptions() != null) {
-                    exceptions.onPolicyStackingConflict(item.getSkuId(), String.join(",", appliedDiscounts));
-                }
-            } catch (Exception e) {
-                // Windows Event Viewer not available on Linux
-            }
+            PricingExceptionReporter.policyStackingConflict(item.getSkuId(), String.join(",", appliedDiscounts));
             currentPrice = selectBestSingleDiscount(item, customerId, adjustedPrice, appliedDiscounts);
         }
 
@@ -153,13 +127,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         if (currentPrice < floorPrice) {
             double calculatedPrice = currentPrice;
             double margin = (currentPrice - floorPrice) / currentPrice;
-            try {
-                if (getExceptions() != null) {
-                    exceptions.onNegativeMarginCalculation(item.getSkuId(), margin);
-                }
-            } catch (Exception e) {
-                // Windows Event Viewer not available on Linux
-            }
+            PricingExceptionReporter.negativeMarginCalculation(item.getSkuId(), margin);
             LOGGER.warning(() -> "NEGATIVE_MARGIN_CALCULATION prevented for SKU " + item.getSkuId()
                 + ": calculated=" + calculatedPrice + ", floor=" + floorPrice + ". Capping to floor.");
             currentPrice = floorPrice;
@@ -178,13 +146,7 @@ public class DiscountRulesEngine implements IDiscountRulesEngine {
         PriceRecord priceRecord = priceStore.findActive(item.getSkuId(), item.getRegionCode(), item.getChannel())
             .orElse(null);
         if (priceRecord == null) {
-            try {
-                if (getExceptions() != null) {
-                    exceptions.onBasePriceNotFound(item.getSkuId());
-                }
-            } catch (Exception e) {
-                // Windows Event Viewer not available on Linux
-            }
+            PricingExceptionReporter.basePriceNotFound(item.getSkuId());
             throw new IllegalArgumentException(
                 "BASE_PRICE_NOT_FOUND: SKU " + item.getSkuId()
                     + " in region " + item.getRegionCode()

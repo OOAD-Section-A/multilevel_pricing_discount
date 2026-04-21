@@ -1,60 +1,77 @@
 package com.pricingos.pricing.db;
 
+import com.jackfruit.scm.database.model.PricingModels.CustomerTierCache;
 import com.pricingos.common.CustomerTier;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.time.Instant;
 
-public class TierDao {
+public final class TierDao {
+
+    private static final String OVERRIDE_PREFIX = "OVERRIDE:";
+
+    private TierDao() {
+    }
 
     public static CustomerTier getEvaluatedTier(String customerId) {
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement("SELECT tier FROM customer_tier_cache WHERE customerId = ?")) {
-            ps.setString(1, customerId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return CustomerTier.valueOf(rs.getString("tier"));
-            }
-        } catch (SQLException e) { throw new RuntimeException(e); }
-        return null;
+        return DatabaseModuleSupport.withPricingAdapter(adapter ->
+                adapter.getCustomerTierCache(customerId)
+                        .map(CustomerTierCache::tier)
+                        .map(TierDao::decodeTier)
+                        .orElse(null));
     }
 
     public static void saveEvaluatedTier(String customerId, CustomerTier tier) {
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO customer_tier_cache (customerId, tier) VALUES (?, ?) " +
-                "ON DUPLICATE KEY UPDATE tier = ?, evaluatedAt = CURRENT_TIMESTAMP")) {
-            ps.setString(1, customerId);
-            ps.setString(2, tier.name());
-            ps.setString(3, tier.name());
-            ps.executeUpdate();
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        DatabaseModuleSupport.usePricingAdapter(adapter -> {
+            String storedTier = adapter.getCustomerTierCache(customerId)
+                    .map(CustomerTierCache::tier)
+                    .filter(TierDao::isOverrideValue)
+                    .map(ignored -> encodeOverride(tier))
+                    .orElse(tier.name());
+            upsertTierCache(adapter, customerId, storedTier);
+        });
     }
 
     public static CustomerTier getOverrideTier(String customerId) {
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement("SELECT overrideTier FROM customer_tier_overrides WHERE customerId = ?")) {
-            ps.setString(1, customerId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return CustomerTier.valueOf(rs.getString("overrideTier"));
-            }
-        } catch (SQLException e) { throw new RuntimeException(e); }
-        return null;
+        return DatabaseModuleSupport.withPricingAdapter(adapter ->
+                adapter.getCustomerTierCache(customerId)
+                        .map(CustomerTierCache::tier)
+                        .filter(TierDao::isOverrideValue)
+                        .map(TierDao::decodeTier)
+                        .orElse(null));
     }
 
     public static void saveOverrideTier(String customerId, CustomerTier tier) {
-        try (Connection c = DatabaseConnectionPool.getInstance().getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO customer_tier_overrides (customerId, overrideTier) VALUES (?, ?) " +
-                "ON DUPLICATE KEY UPDATE overrideTier = ?, overrideSetAt = CURRENT_TIMESTAMP")) {
-            ps.setString(1, customerId);
-            ps.setString(2, tier.name());
-            ps.setString(3, tier.name());
-            ps.executeUpdate();
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        DatabaseModuleSupport.usePricingAdapter(adapter ->
+                upsertTierCache(adapter, customerId, encodeOverride(tier)));
     }
 
     public static boolean hasOverride(String customerId) {
         return getOverrideTier(customerId) != null;
+    }
+
+    private static void upsertTierCache(com.jackfruit.scm.database.adapter.PricingAdapter adapter,
+                                        String customerId,
+                                        String storedTier) {
+        CustomerTierCache tierCache = new CustomerTierCache(customerId, storedTier, Instant.now());
+        if (adapter.getCustomerTierCache(customerId).isPresent()) {
+            adapter.updateCustomerTierCache(tierCache);
+        } else {
+            adapter.createCustomerTierCache(tierCache);
+        }
+    }
+
+    private static boolean isOverrideValue(String storedTier) {
+        return storedTier != null && storedTier.startsWith(OVERRIDE_PREFIX);
+    }
+
+    private static String encodeOverride(CustomerTier tier) {
+        return OVERRIDE_PREFIX + tier.name();
+    }
+
+    private static CustomerTier decodeTier(String storedTier) {
+        String normalized = storedTier;
+        if (isOverrideValue(storedTier)) {
+            normalized = storedTier.substring(OVERRIDE_PREFIX.length());
+        }
+        return CustomerTier.valueOf(normalized);
     }
 }

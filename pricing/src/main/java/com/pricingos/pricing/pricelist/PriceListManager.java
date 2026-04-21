@@ -1,9 +1,10 @@
 package com.pricingos.pricing.pricelist;
 
 import com.pricingos.common.ValidationUtils;
+import com.pricingos.pricing.db.DatabaseModuleSupport;
+import com.pricingos.pricing.exception.PricingExceptionReporter;
 import com.pricingos.pricing.baseprice.BasePriceRecord;
 import com.jackfruit.scm.database.model.PriceList;
-import com.scm.subsystems.MultiLevelPricingSubsystem;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -25,21 +26,7 @@ public class PriceListManager {
     private final DbPricePublisher dbPricePublisher;
     private final Map<String, PriceRecord> activePriceCache;
     private String activeRegion;
-    private MultiLevelPricingSubsystem exceptions;
     private Date lastSyncTimestamp;
-    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-    
-    private MultiLevelPricingSubsystem getExceptions() {
-        if (exceptions == null && IS_WINDOWS) {
-            try {
-                exceptions = MultiLevelPricingSubsystem.INSTANCE;
-            } catch (Exception e) {
-                // Windows Event Viewer initialization failed
-                exceptions = null;
-            }
-        }
-        return exceptions;
-    }
 
     public PriceListManager() {
         this(new InMemoryPriceStore(), "GLOBAL", new DbPriceReader(), new DbPricePublisher());
@@ -86,13 +73,7 @@ public class PriceListManager {
         PriceRecord activeRecord = priceStore.findActive(normalizedSku, normalizedRegion, normalizedChannel)
                 .filter(record -> record.getStatus() == PriceRecord.Status.ACTIVE)
                 .orElseThrow(() -> {
-                    try {
-                        if (getExceptions() != null) {
-                            exceptions.onBasePriceNotFound(normalizedSku);
-                        }
-                    } catch (Exception e) {
-                        // Windows Event Viewer not available on Linux
-                    }
+                    PricingExceptionReporter.basePriceNotFound(normalizedSku);
                     return new NoSuchElementException(
                         "No active base price found for SKU [" + normalizedSku + "] in region [" + normalizedRegion + "].");
                 });
@@ -153,18 +134,13 @@ public class PriceListManager {
 
     public void deletePrice(String priceId) throws Exception {
         ValidationUtils.requireNonBlank(priceId, "priceId");
-        String sql = "DELETE FROM price_list WHERE price_id = ?";
-        try (java.sql.Connection conn = com.pricingos.pricing.db.DatabaseConnectionPool.getInstance().getConnection();
-             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, priceId);
-            int rowsDeleted = ps.executeUpdate();
-            if (rowsDeleted > 0) {
-                LOGGER.info("Successfully deleted price with ID: " + priceId);
-                // Also remove it from active cache if it exists
-                activePriceCache.values().removeIf(record -> record.getPriceId().equals(priceId));
-            } else {
-                LOGGER.warning("No price record found for ID: " + priceId);
-            }
+        try {
+            DatabaseModuleSupport.usePricingAdapter(adapter -> adapter.deletePrice(priceId));
+            LOGGER.info("Successfully deleted price with ID: " + priceId);
+            activePriceCache.values().removeIf(record -> record.getPriceId().equals(priceId));
+        } catch (RuntimeException exception) {
+            LOGGER.warning("Failed to delete price with ID " + priceId + ": " + exception.getMessage());
+            throw exception;
         }
     }
 

@@ -23,8 +23,7 @@ class RebateProgramManagerTest {
 
     @BeforeEach
     void setUp() {
-        com.jackfruit.scm.database.adapter.PricingAdapter adapterMock = org.mockito.Mockito.mock(com.jackfruit.scm.database.adapter.PricingAdapter.class);
-        manager = new RebateProgramManager(adapterMock);
+        manager = new RebateProgramManager(new RebateProgramManager.InMemoryRebateStore());
     }
 
     // ── Create programme ──────────────────────────────────────────────────────────

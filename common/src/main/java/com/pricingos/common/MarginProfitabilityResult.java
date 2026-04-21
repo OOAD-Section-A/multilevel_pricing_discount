@@ -2,7 +2,7 @@ package com.pricingos.common;
 
 import java.time.LocalDateTime;
 
-// [Requirement 1 - Margin Profitability] Interface contract — implementation to be provided by consuming team
+// [Requirement 1 - Margin Profitability] Interface contract - implementation to be provided by consuming team
 // All monetary values are sourced from profitability_analytics.discount_amount (DECIMAL(19,4))
 public record MarginProfitabilityResult(
     double marginConceded,      // sum of discount_amount where final_status='APPROVED' in period

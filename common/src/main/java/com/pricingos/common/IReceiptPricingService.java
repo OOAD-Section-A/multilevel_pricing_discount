@@ -5,7 +5,7 @@ package com.pricingos.common;
  * Calculates the full pricing breakdown for an order and returns a
  * {@link ReceiptSummary} ready for receipt/bill generation.
  *
- * <p>This is a transfer-only API — no data is persisted to the database.
+ * <p>This is a transfer-only API - no data is persisted to the database.
  * The Receipts team is responsible for storing the result on their side.</p>
  */
 public interface IReceiptPricingService {

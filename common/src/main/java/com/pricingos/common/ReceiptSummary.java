@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Immutable DTO that the Pricing module produces for the Receipts team.
  * Contains per-line pricing breakdown plus order-level aggregated totals.
- * No database interaction — pure in-memory transfer object.
+ * No database interaction - pure in-memory transfer object.
  */
 public record ReceiptSummary(
     String orderId,

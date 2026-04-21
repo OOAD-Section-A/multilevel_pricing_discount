@@ -20,7 +20,9 @@ class SimulationServicesTest {
 
     @Test
     void shouldApplyRegionalAdjustment() {
-        RegionalPricingService service = new RegionalPricingService();
+        RegionalPricingService service = new RegionalPricingService(
+            new RegionalPricingService.InMemoryRegionalMultiplierStore()
+        );
         double adjusted = service.applyRegionalPricingAdjustment("SKU-1", 100.0, "SOUTH");
         Assertions.assertTrue(adjusted > 100.0);
     }

@@ -2,7 +2,7 @@ package com.pricingos.common;
 
 import java.time.LocalDateTime;
 
-// [Requirement 1 - Margin Profitability] Interface contract — implementation to be provided by consuming team
+// [Requirement 1 - Margin Profitability] Interface contract - implementation to be provided by consuming team
 public interface IMarginProfitabilityService {
 
     // Aggregates marginConceded and marginProtected for the given period.

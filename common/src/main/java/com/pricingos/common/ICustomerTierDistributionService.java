@@ -1,6 +1,6 @@
 package com.pricingos.common;
 
-// [Requirement 2 - Tier Distribution] Interface contract — implementation to be provided by consuming team
+// [Requirement 2 - Tier Distribution] Interface contract - implementation to be provided by consuming team
 public interface ICustomerTierDistributionService {
 
     // Groups all provided customers by tier and computes global average discount.

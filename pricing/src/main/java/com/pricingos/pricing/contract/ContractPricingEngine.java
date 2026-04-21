@@ -3,7 +3,8 @@ package com.pricingos.pricing.contract;
 import com.pricingos.common.ContractStatus;
 import com.pricingos.common.IContractPricingService;
 import com.pricingos.common.ValidationUtils;
-import com.scm.subsystems.MultiLevelPricingSubsystem;
+import com.pricingos.pricing.exception.PricingExceptionReporter;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -19,20 +20,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ContractPricingEngine implements IContractPricingService {
 
     private final AtomicInteger counter = new AtomicInteger();
-    private MultiLevelPricingSubsystem exceptions;
-    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-    
-    private MultiLevelPricingSubsystem getExceptions() {
-        if (exceptions == null && IS_WINDOWS) {
-            try {
-                exceptions = MultiLevelPricingSubsystem.INSTANCE;
-            } catch (Exception e) {
-                // Windows Event Viewer initialization failed
-                exceptions = null;
-            }
-        }
-        return exceptions;
-    }
 
     @Override
     public String createContract(String customerId, LocalDate startDate,
@@ -71,21 +58,14 @@ public class ContractPricingEngine implements IContractPricingService {
                 && c.getPrice(normalizedSkuId) != null
                 && c.getEndDate().isBefore(today));
         if (hasExpiredMatch) {
-            // Find the expired contract to get its ID and expiry date
             ContractDao.findAll().stream()
                 .filter(c -> c.getCustomerId().equals(normalizedCustomerId)
                     && c.getPrice(normalizedSkuId) != null
                     && c.getEndDate().isBefore(today))
                 .findFirst()
-                .ifPresent(c -> {
-                    try {
-                        if (getExceptions() != null) {
-                            exceptions.onContractExpiredAlert(c.getContractId(), c.getEndDate().toString());
-                        }
-                    } catch (Exception e) {
-                        // Windows Event Viewer not available on Linux
-                    }
-                });
+                .ifPresent(c -> PricingExceptionReporter.contractExpiredAlert(
+                        c.getContractId(),
+                        c.getEndDate().toString()));
         }
         return Optional.empty();
     }

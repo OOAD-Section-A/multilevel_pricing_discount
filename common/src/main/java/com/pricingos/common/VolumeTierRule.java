@@ -39,8 +39,8 @@ public final class VolumeTierRule {
 
     @Override
     public String toString() {
-        String upper = (maxQty == 0) ? "∞" : String.valueOf(maxQty);
-        return "VolumeTierRule{qty=" + minQty + "–" + upper + ", discount=" + discountPct + "%}";
+        String upper = (maxQty == 0) ? "unbounded" : String.valueOf(maxQty);
+        return "VolumeTierRule{qty=" + minQty + "-" + upper + ", discount=" + discountPct + "%}";
     }
 
     @Override

@@ -1,19 +1,45 @@
 package com.pricingos.pricing.gui;
 
+import com.jackfruit.scm.database.adapter.PackagingAdapter;
 import com.jackfruit.scm.database.adapter.PricingAdapter;
 import com.jackfruit.scm.database.facade.SupplyChainDatabaseFacade;
-import com.jackfruit.scm.database.facade.subsystem.PricingSubsystemFacade;
 import com.jackfruit.scm.database.model.PriceList;
+import com.jackfruit.scm.database.model.PackagingModels;
 import com.jackfruit.scm.database.model.PricingModels;
-import com.scm.subsystems.MultiLevelPricingSubsystem;
+import com.pricingos.common.ApprovalRequestType;
+import com.pricingos.common.DiscountType;
+import com.pricingos.common.IApproverRoleService;
+import com.pricingos.common.IFloorPriceService;
+import com.pricingos.common.ISkuCatalogService;
+import com.pricingos.pricing.approval.ApprovalRequest;
+import com.pricingos.pricing.approval.ApprovalRequestDao;
+import com.pricingos.pricing.approval.ApprovalRoutingStrategy;
+import com.pricingos.pricing.approval.ApprovalWorkflowEngine;
+import com.pricingos.pricing.approval.AuditLogObserver;
+import com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver;
+import com.pricingos.pricing.db.DaoBulk;
+import com.pricingos.pricing.demo.PricingDemoDataSeeder;
+import com.pricingos.pricing.exception.PricingExceptionReporter;
+import com.pricingos.pricing.pricelist.PriceListManager;
+import com.pricingos.pricing.promotion.InvalidPromoCodeException;
+import com.pricingos.pricing.promotion.PromotionManager;
+import com.pricingos.pricing.promotion.RebateProgramManager;
+import com.pricingos.pricing.simulation.CurrencySimulator;
+import com.pricingos.pricing.simulation.DynamicPricingEngine;
+import com.pricingos.pricing.simulation.MarketPriceSimulator;
+import com.pricingos.pricing.simulation.RegionalPricingService;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.math.RoundingMode;
 import java.math.BigDecimal;
-import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -21,61 +47,33 @@ import java.util.logging.Logger;
 public class PricingSubsystemGUI extends JFrame {
     
     private static final Logger LOGGER = Logger.getLogger(PricingSubsystemGUI.class.getName());
+    private static final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD, 18);
+    private static final Font BUTTON_FONT = new Font("Segoe UI", Font.PLAIN, 12);
+    private static final Font EMPHASIZED_BUTTON_FONT = new Font("Segoe UI", Font.BOLD, 12);
+    private static final String DEFAULT_APPROVER_ID = resolveSetting(
+        "pricing.default.approver.id", "PRICING_DEFAULT_APPROVER_ID", "pricing-manager");
+    private static final String DEFAULT_ESCALATION_MANAGER_ID = resolveSetting(
+        "pricing.default.escalation.approver.id", "PRICING_DEFAULT_ESCALATION_APPROVER_ID", "pricing-director");
+    private static final String DEFAULT_REQUESTED_BY = resolveSetting(
+        "pricing.default.requested.by", "PRICING_DEFAULT_REQUESTED_BY", "pricing-operator");
+    private static final String DEFAULT_REJECTION_REASON = resolveSetting(
+        "pricing.default.rejection.reason", "PRICING_DEFAULT_REJECTION_REASON", "Rejected during manual review.");
 
     private SupplyChainDatabaseFacade dbFacade;
-    private PricingSubsystemFacade pricingFacade;
     private PricingAdapter pricingAdapter;
-    private com.pricingos.pricing.promotion.PromotionManager promotionManager;
-    private com.pricingos.pricing.pricelist.PriceListManager priceListManager;
-    private com.pricingos.pricing.approval.ApprovalWorkflowEngine approvalEngine;
-    private com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver analyticsObserver;
-    private com.pricingos.pricing.promotion.RebateProgramManager rebateProgramManager;
-    private com.pricingos.pricing.simulation.DynamicPricingEngine dynamicPricingEngine;
-    private com.pricingos.pricing.simulation.CurrencySimulator currencySimulator;
-    private com.pricingos.pricing.simulation.RegionalPricingService regionalPricingService;
-    private com.pricingos.pricing.simulation.MarketPriceSimulator marketSimulator;
-    private MultiLevelPricingSubsystem exceptions;
-    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-    
-    private MultiLevelPricingSubsystem getExceptions() {
-        if (exceptions == null && IS_WINDOWS) {
-            try {
-                exceptions = MultiLevelPricingSubsystem.INSTANCE;
-                log("DEBUG: Exception handler initialized successfully");
-                LOGGER.info("Exception handler initialized: " + exceptions.getClass().getName());
-            } catch (Exception e) {
-                // Windows Event Viewer initialization failed
-                log("DEBUG: Exception handler initialization failed: " + e.getMessage());
-                LOGGER.log(Level.SEVERE, "Failed to initialize exception handler", e);
-                exceptions = null;
-            }
-        } else if (!IS_WINDOWS) {
-            log("DEBUG: Not running on Windows - exception handler disabled");
-        }
-        return exceptions;
-    }
-    
-    /**
-     * Temporary workaround for logging unregistered exceptions (ID 0).
-     * 
-     * The raise(int id, String name, String message, Severity severity) method 
-     * in MultiLevelPricingSubsystem is currently PRIVATE. This method logs the 
-     * exception locally until exceptions team makes raise() public.
-     * 
-     * TODO: Replace with exceptions.raise(0, name, message, severity) after exceptions team update
-     * 
-     * @param exceptionId Exception type (ID 0 for unregistered)
-     * @param exceptionName Name of the exception type
-     * @param message Detailed error message
-     */
-    private void logUnregistegeredException(int exceptionId, String exceptionName, String message) {
-        String logMessage = String.format(
-            "[UNREGISTERED_EXCEPTION_ID_%d] %s: %s",
-            exceptionId, exceptionName, message
-        );
-        LOGGER.warning(logMessage);
-        log("WARNING: " + logMessage);
-    }
+    private PackagingAdapter packagingAdapter;
+    private PromotionManager promotionManager;
+    private PriceListManager priceListManager;
+    private ApprovalWorkflowEngine approvalEngine;
+    private AuditLogObserver auditLogObserver;
+    private ProfitabilityAnalyticsObserver analyticsObserver;
+    private RebateProgramManager rebateProgramManager;
+    private PricingDemoDataSeeder demoDataSeeder;
+    private DynamicPricingEngine dynamicPricingEngine;
+    private CurrencySimulator currencySimulator;
+    private RegionalPricingService regionalPricingService;
+    private MarketPriceSimulator marketSimulator;
+    private final List<String> pendingLogEntries = new ArrayList<>();
     
     private JTabbedPane tabbedPane;
     private JTextArea logArea;
@@ -100,58 +98,119 @@ public class PricingSubsystemGUI extends JFrame {
         initializeDatabaseConnection();
         initializeSubsystemAPIs();
         initializeUI();
-        loadData();
+        if (shouldSeedDemoDataOnStartup()) {
+            seedDemoData(false);
+        } else {
+            loadData();
+        }
     }
 
     private void initializeSubsystemAPIs() {
         try {
-            com.pricingos.common.ISkuCatalogService skuCatalogService = new com.pricingos.common.ISkuCatalogService() {
-                @Override public boolean isSkuActive(String skuId) { return true; }
-                @Override public java.util.List<String> getAllActiveSkuIds() {
-                    return java.util.List.of("SKU-APPLE-001", "SKU-BANANA-001", "SKU-ORANGE-001");
-                }
-            };
-            promotionManager = new com.pricingos.pricing.promotion.PromotionManager(skuCatalogService);
-            priceListManager = new com.pricingos.pricing.pricelist.PriceListManager();
-            rebateProgramManager = new com.pricingos.pricing.promotion.RebateProgramManager(pricingAdapter);
-            
-            marketSimulator = new com.pricingos.pricing.simulation.MarketPriceSimulator();
-            dynamicPricingEngine = new com.pricingos.pricing.simulation.DynamicPricingEngine(marketSimulator);
-            currencySimulator = new com.pricingos.pricing.simulation.CurrencySimulator();
-            regionalPricingService = new com.pricingos.pricing.simulation.RegionalPricingService();
-
-            com.pricingos.pricing.approval.ApprovalRoutingStrategy strategy = new com.pricingos.pricing.approval.ApprovalRoutingStrategy() {
-                @Override public String resolveApproverId(com.pricingos.pricing.approval.ApprovalRequest request) { return "MANAGER_123"; }
-                @Override public boolean requiresDualApproval(com.pricingos.pricing.approval.ApprovalRequest request) { return false; }
-            };
-            com.pricingos.common.IApproverRoleService roleService = new com.pricingos.common.IApproverRoleService() {
-                @Override public boolean canApprove(String approverId, com.pricingos.common.ApprovalRequestType type, double discount) { return true; }
-                @Override public String getEscalationManagerId(String currentApprover) { return "DIRECTOR_123"; }
-            };
-            approvalEngine = new com.pricingos.pricing.approval.ApprovalWorkflowEngine(strategy, roleService);
-            
-            com.pricingos.common.IFloorPriceService floorPriceService = new com.pricingos.common.IFloorPriceService() {
-                @Override public boolean wouldViolateMargin(String orderId, double price) { return false; } // Explcitly checked in GUI
-                @Override public double getEffectiveFloorPrice(String orderId) { return 100.0; }
-            };
-            approvalEngine.withFloorPriceService(floorPriceService);
-            
-            analyticsObserver = new com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver();
+            promotionManager = new PromotionManager(createSkuCatalogService());
+            priceListManager = new PriceListManager();
+            rebateProgramManager = new RebateProgramManager(pricingAdapter);
+            marketSimulator = new MarketPriceSimulator();
+            dynamicPricingEngine = new DynamicPricingEngine(marketSimulator);
+            currencySimulator = new CurrencySimulator();
+            regionalPricingService = new RegionalPricingService();
+            approvalEngine = createApprovalEngine();
+            auditLogObserver = new AuditLogObserver();
+            analyticsObserver = new ProfitabilityAnalyticsObserver();
+            approvalEngine.addObserver(auditLogObserver);
             approvalEngine.addObserver(analyticsObserver);
+            demoDataSeeder = new PricingDemoDataSeeder(
+                pricingAdapter,
+                promotionManager,
+                rebateProgramManager,
+                approvalEngine,
+                analyticsObserver,
+                auditLogObserver,
+                DEFAULT_REQUESTED_BY,
+                DEFAULT_APPROVER_ID,
+                DEFAULT_REJECTION_REASON,
+                this::log);
 
-            log("Initialized subsystem APIs: PromotionManager, RebateProgramManager, PriceListManager, ApprovalWorkflowEngine, AnalyticsObserver");
+            log("Initialized subsystem APIs: PromotionManager, RebateProgramManager, PriceListManager, ApprovalWorkflowEngine, AuditLogObserver, AnalyticsObserver");
         } catch (Exception e) {
             log("ERROR initializing subsystem APIs: " + e.getMessage());
             LOGGER.log(Level.SEVERE, "Failed to initialize subsystem APIs", e);
         }
+    }
+
+    private ISkuCatalogService createSkuCatalogService() {
+        return new ISkuCatalogService() {
+            @Override
+            public boolean isSkuActive(String skuId) {
+                return getAvailableSkuIds().contains(skuId);
+            }
+
+            @Override
+            public List<String> getAllActiveSkuIds() {
+                return getAvailableSkuIds();
+            }
+        };
+    }
+
+    private ApprovalWorkflowEngine createApprovalEngine() {
+        ApprovalRoutingStrategy strategy = new ApprovalRoutingStrategy() {
+            @Override
+            public String resolveApproverId(ApprovalRequest request) {
+                return DEFAULT_APPROVER_ID;
+            }
+
+            @Override
+            public boolean requiresDualApproval(ApprovalRequest request) {
+                return false;
+            }
+        };
+        IApproverRoleService roleService = new IApproverRoleService() {
+            @Override
+            public boolean canApprove(String approverId, ApprovalRequestType type, double discount) {
+                return true;
+            }
+
+            @Override
+            public String getEscalationManagerId(String currentApprover) {
+                return DEFAULT_ESCALATION_MANAGER_ID;
+            }
+        };
+
+        ApprovalWorkflowEngine engine = new ApprovalWorkflowEngine(strategy, roleService);
+        engine.withFloorPriceService(createFloorPriceService());
+        return engine;
+    }
+
+    private IFloorPriceService createFloorPriceService() {
+        return new IFloorPriceService() {
+            @Override
+            public boolean wouldViolateMargin(String pricingReference, double discountAmount) {
+                PriceList price = findFloorPriceReference(pricingReference);
+                if (price == null) {
+                    return false;
+                }
+                BigDecimal maxAllowedDiscount = price.getBasePrice().subtract(price.getPriceFloor());
+                return BigDecimal.valueOf(discountAmount).compareTo(maxAllowedDiscount) > 0;
+            }
+
+            @Override
+            public double getEffectiveFloorPrice(String pricingReference) {
+                PriceList price = findFloorPriceReference(pricingReference);
+                if (price == null) {
+                    throw new IllegalArgumentException(
+                        "No active price found for pricing reference: " + pricingReference);
+                }
+                return price.getPriceFloor().doubleValue();
+            }
+        };
     }
     
     private void initializeDatabaseConnection() {
         try {
             log("Connecting to database OOAD...");
             dbFacade = new SupplyChainDatabaseFacade();
-            pricingFacade = dbFacade.pricing();
             pricingAdapter = new PricingAdapter(dbFacade);
+            packagingAdapter = new PackagingAdapter(dbFacade);
             log("Database connection established successfully");
         } catch (Exception e) {
             log("ERROR: Failed to connect to database: " + e.getMessage());
@@ -201,6 +260,216 @@ public class PricingSubsystemGUI extends JFrame {
         
         setVisible(true);
     }
+
+    private JLabel createSectionTitleLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(TITLE_FONT);
+        return label;
+    }
+
+    private DefaultTableModel createReadOnlyTableModel(String[] columnNames) {
+        return new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+    }
+
+    private JTable createReadOnlyTable(DefaultTableModel model) {
+        JTable table = new JTable(model);
+        table.setFont(BUTTON_FONT);
+        table.setRowHeight(28);
+        table.getTableHeader().setFont(EMPHASIZED_BUTTON_FONT);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setAutoCreateRowSorter(true);
+        return table;
+    }
+
+    private JButton createButton(String text) {
+        return createButton(text, false);
+    }
+
+    private JButton createButton(String text, boolean emphasized) {
+        JButton button = new JButton(text);
+        button.setFont(emphasized ? EMPHASIZED_BUTTON_FONT : BUTTON_FONT);
+        return button;
+    }
+
+    private static String resolveSetting(String propertyName, String environmentVariable, String defaultValue) {
+        String value = System.getProperty(propertyName);
+        if (value == null || value.isBlank()) {
+            value = System.getenv(environmentVariable);
+        }
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return value.trim();
+    }
+
+    private boolean shouldSeedDemoDataOnStartup() {
+        return Boolean.parseBoolean(resolveSetting(
+            "pricing.seed.demo",
+            "PRICING_SEED_DEMO_DATA",
+            "false"));
+    }
+
+    private int getSelectedModelRow(JTable table) {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            return -1;
+        }
+        return table.convertRowIndexToModel(viewRow);
+    }
+
+    private void flushPendingLogEntries() {
+        if (logArea == null || pendingLogEntries.isEmpty()) {
+            return;
+        }
+        for (String pendingEntry : pendingLogEntries) {
+            logArea.append(pendingEntry);
+            logArea.append("\n");
+        }
+        pendingLogEntries.clear();
+        logArea.setCaretPosition(logArea.getDocument().getLength());
+    }
+
+    private void closeDatabaseFacade() {
+        if (dbFacade == null) {
+            return;
+        }
+        try {
+            dbFacade.close();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to close database facade", e);
+        } finally {
+            dbFacade = null;
+        }
+    }
+
+    @Override
+    public void dispose() {
+        closeDatabaseFacade();
+        super.dispose();
+    }
+
+    private List<String> parseSkuList(String rawSkus) {
+        if (rawSkus == null || rawSkus.isBlank()) {
+            return List.of();
+        }
+
+        List<String> skuIds = new ArrayList<>();
+        for (String token : rawSkus.split(",")) {
+            String skuId = token.trim();
+            if (!skuId.isEmpty()) {
+                skuIds.add(skuId);
+            }
+        }
+        return skuIds;
+    }
+
+    private int nextTierId() {
+        int maxTierId = 0;
+        for (int row = 0; row < tierTableModel.getRowCount(); row++) {
+            Object value = tierTableModel.getValueAt(row, 0);
+            if (value instanceof Number number) {
+                maxTierId = Math.max(maxTierId, number.intValue());
+            }
+        }
+        return maxTierId + 1;
+    }
+
+    private List<PriceList> getActivePrices() {
+        if (pricingAdapter == null) {
+            return List.of();
+        }
+        try {
+            return pricingAdapter.getActivePrices();
+        } catch (RuntimeException exception) {
+            LOGGER.log(Level.FINE, "Failed to load active prices", exception);
+            return List.of();
+        }
+    }
+
+    private List<String> getAvailableSkuIds() {
+        return getActivePrices().stream()
+            .map(PriceList::getSkuId)
+            .filter(skuId -> skuId != null && !skuId.isBlank())
+            .distinct()
+            .sorted()
+            .toList();
+    }
+
+    private String defaultSkuInput() {
+        List<String> skuIds = getAvailableSkuIds();
+        return skuIds.isEmpty() ? "" : skuIds.get(0);
+    }
+
+    private String defaultEligibleSkuInput() {
+        List<String> skuIds = getAvailableSkuIds();
+        if (skuIds.isEmpty()) {
+            return "";
+        }
+        return String.join(",", skuIds.subList(0, Math.min(2, skuIds.size())));
+    }
+
+    private String defaultCustomerInput() {
+        return "";
+    }
+
+    private String defaultRegionInput() {
+        return "GLOBAL";
+    }
+
+    private String defaultChannelInput() {
+        return "RETAIL";
+    }
+
+    private String defaultTierName() {
+        return "Tier-" + nextTierId();
+    }
+
+    private String buildPricingReference(String skuId) {
+        return "SKU:" + skuId.trim();
+    }
+
+    private String extractSkuFromPricingReference(String pricingReference) {
+        if (pricingReference == null) {
+            return "";
+        }
+        String normalizedReference = pricingReference.trim();
+        if (normalizedReference.startsWith("SKU:")) {
+            return normalizedReference.substring("SKU:".length()).trim();
+        }
+        return normalizedReference;
+    }
+
+    private PriceList findActivePriceForSku(String skuId) {
+        List<PriceList> activePrices = getActivePrices();
+        if (activePrices.isEmpty()) {
+            throw new IllegalArgumentException(
+                "No active prices are configured. Add a price record in the Price List tab first.");
+        }
+        for (PriceList price : activePrices) {
+            if (skuId.equals(price.getSkuId()) && "ACTIVE".equals(price.getStatus())) {
+                return price;
+            }
+        }
+        throw new IllegalArgumentException("No active base price found for SKU: " + skuId);
+    }
+
+    private PriceList findFloorPriceReference(String pricingReference) {
+        String skuId = extractSkuFromPricingReference(pricingReference);
+        if (skuId.isEmpty()) {
+            return null;
+        }
+        try {
+            return findActivePriceForSku(skuId);
+        } catch (IllegalArgumentException exception) {
+            LOGGER.log(Level.FINE, "No active price found for pricing reference " + pricingReference, exception);
+            return null;
+        }
+    }
     
     private JPanel createHeaderPanel() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -222,44 +491,77 @@ public class PricingSubsystemGUI extends JFrame {
         
         panel.add(titlePanel, BorderLayout.WEST);
         
-        JButton refreshButton = new JButton("Refresh All Data");
-        refreshButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton seedButton = createButton("Seed Demo Data", true);
+        seedButton.setBackground(Color.WHITE);
+        seedButton.addActionListener(e -> seedDemoData(true));
+
+        JButton refreshButton = createButton("Refresh All Data", true);
         refreshButton.setBackground(Color.WHITE);
         refreshButton.addActionListener(e -> {
             loadData();
             log("Data refreshed from database");
         });
-        
-        panel.add(refreshButton, BorderLayout.EAST);
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        actionPanel.setOpaque(false);
+        actionPanel.add(seedButton);
+        actionPanel.add(refreshButton);
+
+        panel.add(actionPanel, BorderLayout.EAST);
         
         return panel;
+    }
+
+    private void seedDemoData(boolean interactive) {
+        if (demoDataSeeder == null) {
+            log("ERROR seeding demo data: seeder is not initialized");
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    "Demo data seeder is not initialized.",
+                    "Seed Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
+            return;
+        }
+
+        try {
+            PricingDemoDataSeeder.SeedReport report = demoDataSeeder.seed();
+            if (rebateFilterCustomerField != null && rebateFilterCustomerField.getText().isBlank()) {
+                rebateFilterCustomerField.setText("DEMO-CUST-001");
+            }
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    report.summary(),
+                    "Demo Data Seeded",
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception exception) {
+            String errorDetail = exception.getMessage() == null
+                ? exception.getClass().getSimpleName()
+                : exception.getClass().getSimpleName() + ": " + exception.getMessage();
+            log("ERROR seeding demo data: " + errorDetail);
+            LOGGER.log(Level.SEVERE, "Failed to seed demo data", exception);
+            if (interactive) {
+                JOptionPane.showMessageDialog(this,
+                    "Error seeding demo data: " + errorDetail,
+                    "Seed Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
+        } finally {
+            loadData();
+        }
     }
     
     private JPanel createPriceListPanel() {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        // Title
-        JLabel titleLabel = new JLabel("Price List Management");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Price List Management"), BorderLayout.NORTH);
         
-        // Create table
         String[] columnNames = {"Price ID", "SKU ID", "Region", "Channel", "Price Type", 
                                "Base Price", "Floor Price", "Currency", "Status"};
-        priceTableModel = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        
-        priceListTable = new JTable(priceTableModel);
-        priceListTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        priceListTable.setRowHeight(28);
-        priceListTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        priceListTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        priceListTable.setAutoCreateRowSorter(true);
+        priceTableModel = createReadOnlyTableModel(columnNames);
+        priceListTable = createReadOnlyTable(priceTableModel);
         
         JScrollPane scrollPane = new JScrollPane(priceListTable);
         scrollPane.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
@@ -268,16 +570,13 @@ public class PricingSubsystemGUI extends JFrame {
         // Button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 10));
 
-        JButton addPriceButton = new JButton("Add Price");
-        addPriceButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JButton addPriceButton = createButton("Add Price");
         addPriceButton.addActionListener(e -> showAddPriceDialog());
 
-        JButton deletePriceButton = new JButton("Delete Price");
-        deletePriceButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JButton deletePriceButton = createButton("Delete Price");
         deletePriceButton.addActionListener(e -> deleteSelectedPrice());
 
-        JButton viewDetailsButton = new JButton("View Details");
-        viewDetailsButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JButton viewDetailsButton = createButton("View Details");
         viewDetailsButton.addActionListener(e -> showPriceDetails());
 
         buttonPanel.add(addPriceButton);
@@ -292,23 +591,11 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Customer Tier Definitions");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Customer Tier Definitions"), BorderLayout.NORTH);
         
         String[] columnNames = {"Tier ID", "Tier Name", "Min Spend Threshold", "Default Discount %"};
-        tierTableModel = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        
-        tierTable = new JTable(tierTableModel);
-        tierTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        tierTable.setRowHeight(28);
-        tierTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        tierTable.setAutoCreateRowSorter(true);
+        tierTableModel = createReadOnlyTableModel(columnNames);
+        tierTable = createReadOnlyTable(tierTableModel);
         
         JScrollPane scrollPane = new JScrollPane(tierTable);
         scrollPane.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
@@ -316,8 +603,7 @@ public class PricingSubsystemGUI extends JFrame {
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 10));
 
-        JButton addTierButton = new JButton("Create Tier");
-        addTierButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JButton addTierButton = createButton("Create Tier");
         addTierButton.addActionListener(e -> showAddTierDialog());
 
         buttonPanel.add(addTierButton);
@@ -330,24 +616,12 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Promotional & Seasonal Rule Engine");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Promotional & Seasonal Rule Engine"), BorderLayout.NORTH);
         
         String[] columnNames = {"Promo ID", "Promo Name", "Coupon Code", "Discount Type", 
-                               "Discount Value", "Start Date", "End Date", "Max Uses", "Current Uses"};
-        promotionsTableModel = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        
-        promotionsTable = new JTable(promotionsTableModel);
-        promotionsTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        promotionsTable.setRowHeight(28);
-        promotionsTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        promotionsTable.setAutoCreateRowSorter(true);
+                               "Discount Value", "Start Date", "End Date", "Min Cart Value", "Max Uses", "Current Uses"};
+        promotionsTableModel = createReadOnlyTableModel(columnNames);
+        promotionsTable = createReadOnlyTable(promotionsTableModel);
         
         JScrollPane scrollPane = new JScrollPane(promotionsTable);
         scrollPane.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
@@ -360,20 +634,18 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        JLabel titleLabel = new JLabel("Promo Code Manager (Using PromotionManager API)");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Promo Code Manager (Using PromotionManager API)"), BorderLayout.NORTH);
 
         // Create Promo Section
         JPanel createPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         createPanel.setBorder(BorderFactory.createTitledBorder("Create New Promotion"));
 
         createPanel.add(new JLabel("Promotion Name:"));
-        JTextField nameField = new JTextField("Summer Sale 2024");
+        JTextField nameField = new JTextField("Seasonal Promotion");
         createPanel.add(nameField);
 
         createPanel.add(new JLabel("Coupon Code:"));
-        JTextField codeField = new JTextField("SUMMER24");
+        JTextField codeField = new JTextField();
         createPanel.add(codeField);
 
         createPanel.add(new JLabel("Discount Type:"));
@@ -385,7 +657,7 @@ public class PricingSubsystemGUI extends JFrame {
         createPanel.add(valueField);
 
         createPanel.add(new JLabel("Eligible SKUs (comma-separated):"));
-        JTextField skuField = new JTextField("SKU-APPLE-001,SKU-BANANA-001");
+        JTextField skuField = new JTextField(defaultEligibleSkuInput());
         createPanel.add(skuField);
 
         createPanel.add(new JLabel("Min Cart Value:"));
@@ -397,17 +669,16 @@ public class PricingSubsystemGUI extends JFrame {
         createPanel.add(maxUsesField);
 
         createPanel.add(new JLabel("Start Date (YYYY-MM-DD):"));
-        java.time.LocalDate today = java.time.LocalDate.now();
+        LocalDate today = LocalDate.now();
         JTextField startDateField = new JTextField(today.toString());
         createPanel.add(startDateField);
 
         createPanel.add(new JLabel("End Date (YYYY-MM-DD):"));
-        java.time.LocalDate futureDate = today.plusMonths(6);
+        LocalDate futureDate = today.plusMonths(6);
         JTextField endDateField = new JTextField(futureDate.toString());
         createPanel.add(endDateField);
 
-        JButton createButton = new JButton("Create Promotion");
-        createButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton createButton = createButton("Create Promotion", true);
         createButton.addActionListener(e -> {
             try {
                 String name = nameField.getText();
@@ -417,32 +688,32 @@ public class PricingSubsystemGUI extends JFrame {
                 List<String> eligibleSkus;
                 double minCartValue;
                 int maxUses;
-                java.time.LocalDate startDate;
-                java.time.LocalDate endDate;
+                LocalDate startDate;
+                LocalDate endDate;
 
                 try {
                     discountValue = Double.parseDouble(valueField.getText());
                     minCartValue = Double.parseDouble(minCartField.getText());
                     maxUses = Integer.parseInt(maxUsesField.getText());
                 } catch (NumberFormatException nfe) {
-                    // TEMPORARY WORKAROUND: Using local logging instead of exceptions.raise(0, ...)
-                    // because raise() method is PRIVATE in MultiLevelPricingSubsystem
-                    // TODO: Change to exceptions.raise(0, "INVALID_NUMBER_INPUT", ...) after exceptions team makes raise() public
-                    logUnregistegeredException(0, "INVALID_NUMBER_INPUT", 
+                    PricingExceptionReporter.unregistered(
+                        "INVALID_NUMBER_INPUT",
                         "Promotion creation input validation failed: " + nfe.getMessage());
                     log("ERROR: Invalid numeric input for promotion creation");
                     return;
                 }
 
-                eligibleSkus = List.of(skuField.getText().split(","));
-                startDate = java.time.LocalDate.parse(startDateField.getText());
-                endDate = java.time.LocalDate.parse(endDateField.getText());
+                eligibleSkus = parseSkuList(skuField.getText());
+                if (eligibleSkus.isEmpty()) {
+                    throw new IllegalArgumentException("At least one eligible SKU is required.");
+                }
+                startDate = LocalDate.parse(startDateField.getText());
+                endDate = LocalDate.parse(endDateField.getText());
 
                 log("Creating promotion: " + name + " with code: " + couponCode + " for SKUs: " + eligibleSkus);
                 log("Dates: " + startDate + " to " + endDate + ", Min cart: " + minCartValue);
 
-                // Use PromotionManager API
-                com.pricingos.common.DiscountType type = com.pricingos.common.DiscountType.valueOf(discountType);
+                DiscountType type = DiscountType.valueOf(discountType);
                 String promoId = promotionManager.createPromotion(name, couponCode, type, discountValue,
                     startDate, endDate, eligibleSkus, minCartValue, maxUses);
 
@@ -451,7 +722,7 @@ public class PricingSubsystemGUI extends JFrame {
                     "Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception ex) {
                 log("ERROR creating promotion: " + ex.getMessage());
-                ex.printStackTrace();
+                LOGGER.log(Level.SEVERE, "Failed to create promotion", ex);
                 JOptionPane.showMessageDialog(this, "Error creating promotion: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -465,19 +736,18 @@ public class PricingSubsystemGUI extends JFrame {
         validatePanel.setBorder(BorderFactory.createTitledBorder("Validate Promo Code"));
 
         validatePanel.add(new JLabel("Coupon Code:"));
-        JTextField validateCodeField = new JTextField("SUMMER24");
+        JTextField validateCodeField = new JTextField();
         validatePanel.add(validateCodeField);
 
         validatePanel.add(new JLabel("SKU ID:"));
-        JTextField validateSkuField = new JTextField("SKU-APPLE-001");
+        JTextField validateSkuField = new JTextField(defaultSkuInput());
         validatePanel.add(validateSkuField);
 
         validatePanel.add(new JLabel("Cart Total:"));
         JTextField cartTotalField = new JTextField("100.00");
         validatePanel.add(cartTotalField);
 
-        JButton validateButton = new JButton("Validate & Get Discount");
-        validateButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton validateButton = createButton("Validate & Get Discount", true);
         validateButton.addActionListener(e -> {
             String couponCode = validateCodeField.getText();
             String skuId = validateSkuField.getText();
@@ -492,19 +762,12 @@ public class PricingSubsystemGUI extends JFrame {
                 log("Promo code valid! Discount: " + discountAmount);
                 JOptionPane.showMessageDialog(this, "Promo code valid!\nDiscount Amount: " + discountAmount,
                     "Success", JOptionPane.INFORMATION_MESSAGE);
-            } catch (com.pricingos.pricing.promotion.InvalidPromoCodeException ex) {
-                try {
-                    if (getExceptions() != null) {
-                        exceptions.onInvalidPromoCode(couponCode);
-                    }
-                } catch (Exception ehEx) {
-                    log("Exception handler error: " + ehEx.getMessage());
-                }
-                // Exception popup already shown by handler; no additional GUI message needed
+            } catch (InvalidPromoCodeException ex) {
+                PricingExceptionReporter.invalidPromoCode(couponCode);
                 return;
             } catch (Exception ex) {
                 log("ERROR validating promo code: " + ex.getMessage());
-                ex.printStackTrace();
+                LOGGER.log(Level.SEVERE, "Failed to validate promotion", ex);
                 JOptionPane.showMessageDialog(this, "Error validating promo code: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -521,7 +784,7 @@ public class PricingSubsystemGUI extends JFrame {
         activePromoArea.setEditable(false);
         activePromoArea.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
-        JButton refreshButton = new JButton("Refresh Active Codes");
+        JButton refreshButton = createButton("Refresh Active Codes");
         refreshButton.addActionListener(e -> {
             try {
                 List<String> activeCodes = promotionManager.getActivePromoCodes();
@@ -562,20 +825,18 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        JLabel titleLabel = new JLabel("Rebate Program Manager (Volume-Based Rebates)");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Rebate Program Manager (Volume-Based Rebates)"), BorderLayout.NORTH);
 
         // Create Rebate Section
         JPanel createPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         createPanel.setBorder(BorderFactory.createTitledBorder("Create New Rebate Program"));
 
         createPanel.add(new JLabel("Customer ID:"));
-        JTextField customerIdField = new JTextField("CUST-12345");
+        JTextField customerIdField = new JTextField(defaultCustomerInput());
         createPanel.add(customerIdField);
 
         createPanel.add(new JLabel("SKU ID:"));
-        JTextField skuIdField = new JTextField("SKU-APPLE-001");
+        JTextField skuIdField = new JTextField(defaultSkuInput());
         createPanel.add(skuIdField);
 
         createPanel.add(new JLabel("Target Spend ($):"));
@@ -586,8 +847,7 @@ public class PricingSubsystemGUI extends JFrame {
         JTextField rebatePercentField = new JTextField("5.0");
         createPanel.add(rebatePercentField);
 
-        JButton createButton = new JButton("Create Rebate Program");
-        createButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton createButton = createButton("Create Rebate Program", true);
         createButton.addActionListener(e -> {
             try {
                 String customerId = customerIdField.getText();
@@ -624,15 +884,14 @@ public class PricingSubsystemGUI extends JFrame {
         purchasePanel.setBorder(BorderFactory.createTitledBorder("Record Purchase"));
 
         purchasePanel.add(new JLabel("Program ID:"));
-        JTextField programIdField = new JTextField("RBT-1");
+        JTextField programIdField = new JTextField();
         purchasePanel.add(programIdField);
 
         purchasePanel.add(new JLabel("Purchase Amount ($):"));
         JTextField purchaseAmountField = new JTextField("1200.00");
         purchasePanel.add(purchaseAmountField);
 
-        JButton recordButton = new JButton("Record Purchase");
-        recordButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton recordButton = createButton("Record Purchase", true);
         recordButton.addActionListener(e -> {
             try {
                 String programId = programIdField.getText();
@@ -666,9 +925,9 @@ public class PricingSubsystemGUI extends JFrame {
         rebateDetailArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
         rebateDetailArea.setBackground(new Color(240, 245, 240));
 
-        JButton refreshButton = new JButton("Refresh Programs");
+        JButton refreshButton = createButton("Refresh Programs");
         rebateFilterCustomerField = new JTextField(15);
-        rebateFilterCustomerField.setToolTipText("Enter Customer ID to filter (e.g. CUST-12345)");
+        rebateFilterCustomerField.setToolTipText("Enter a customer ID to filter rebate programs");
         
         refreshButton.addActionListener(e -> refreshRebatePrograms());
 
@@ -705,11 +964,10 @@ public class PricingSubsystemGUI extends JFrame {
             log("Refreshing rebate programs from database...");
             
             StringBuilder display = new StringBuilder();
-            display.append("╔════════════════════════════════════════════════════════════════════════╗\n");
-            display.append("║                    ACTIVE REBATE PROGRAMS                             ║\n");
-            display.append("╚════════════════════════════════════════════════════════════════════════╝\n\n");
+            display.append("ACTIVE REBATE PROGRAMS\n");
+            display.append("======================\n\n");
             
-            java.util.List<PricingModels.RebateProgram> programs = java.util.Collections.emptyList();
+            List<PricingModels.RebateProgram> programs = Collections.emptyList();
             String customerFilter = rebateFilterCustomerField != null ? rebateFilterCustomerField.getText().trim() : "";
             
             if (pricingAdapter != null) {
@@ -729,7 +987,7 @@ public class PricingSubsystemGUI extends JFrame {
             } else {
                 display.append(String.format("%-12s %-15s %-15s %-15s %-12s %-12s\n", 
                     "Program ID", "Customer", "SKU", "Progress", "Rebate Due", "Status"));
-                display.append("─".repeat(82)).append("\n");
+                display.append("-".repeat(82)).append("\n");
                 
                 for (PricingModels.RebateProgram prog : programs) {
                     String programId = prog.programId();
@@ -742,7 +1000,7 @@ public class PricingSubsystemGUI extends JFrame {
                     double progressPct = (accumulatedSpend / targetSpend) * 100.0;
                     boolean targetMet = accumulatedSpend >= targetSpend;
                     double rebateDue = targetMet ? accumulatedSpend * rebatePct : 0.0;
-                    String status = targetMet ? "✓ EARNED" : "PENDING";
+                    String status = targetMet ? "EARNED" : "PENDING";
                     
                     String progressStr = String.format("%.0f/%.0f (%.1f%%)", 
                         accumulatedSpend, targetSpend, progressPct);
@@ -755,7 +1013,7 @@ public class PricingSubsystemGUI extends JFrame {
                 }
             }
             
-            display.append("\n═══════════════════════════════════════════════════════════════════════════\n");
+            display.append("\n").append("-".repeat(82)).append("\n");
             
             if (rebateDetailArea != null) {
                 rebateDetailArea.setText(display.toString());
@@ -776,19 +1034,17 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Pricing Calculator");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Pricing Calculator"), BorderLayout.NORTH);
         
         JPanel inputPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         inputPanel.setBorder(BorderFactory.createTitledBorder("Input"));
         
         inputPanel.add(new JLabel("SKU:"));
-        JTextField skuField = new JTextField("SKU-APPLE-001");
+        JTextField skuField = new JTextField(defaultSkuInput());
         inputPanel.add(skuField);
         
         inputPanel.add(new JLabel("Customer ID:"));
-        JTextField customerField = new JTextField("CUST-12345");
+        JTextField customerField = new JTextField(defaultCustomerInput());
         inputPanel.add(customerField);
         
         inputPanel.add(new JLabel("Quantity:"));
@@ -796,7 +1052,7 @@ public class PricingSubsystemGUI extends JFrame {
         inputPanel.add(quantityField);
         
         inputPanel.add(new JLabel("Promo Code:"));
-        JTextField promoField = new JTextField("SUMMER24");
+        JTextField promoField = new JTextField();
         inputPanel.add(promoField);
         
         // Add dropdown to load rebate programs
@@ -805,18 +1061,16 @@ public class PricingSubsystemGUI extends JFrame {
         rebateCombo.addItem("-- Select to Auto-Fill --");
         inputPanel.add(rebateCombo);
         
-        JButton calculateButton = new JButton("Calculate Price");
-        calculateButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton calculateButton = createButton("Calculate Price", true);
         calculateButton.addActionListener(e -> calculatePrice(skuField, customerField, quantityField, promoField));
         
-        JButton refreshRebatesBtn = new JButton("Refresh Rebate List");
-        refreshRebatesBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        JButton refreshRebatesBtn = createButton("Refresh Rebate List");
         refreshRebatesBtn.addActionListener(e -> {
             String customerId = customerField.getText();
             rebateCombo.removeAllItems();
             rebateCombo.addItem("-- Select to Auto-Fill --");
             if (pricingAdapter != null && customerId != null && !customerId.trim().isEmpty()) {
-                java.util.List<PricingModels.RebateProgram> programs = pricingAdapter.listRebateProgramsByCustomer(customerId.trim());
+                List<PricingModels.RebateProgram> programs = pricingAdapter.listRebateProgramsByCustomer(customerId.trim());
                 for (PricingModels.RebateProgram prog : programs) {
                     try {
                         String custId = prog.customerId();
@@ -888,6 +1142,7 @@ public class PricingSubsystemGUI extends JFrame {
         
         JScrollPane scrollPane = new JScrollPane(logArea);
         panel.add(scrollPane, BorderLayout.CENTER);
+        flushPendingLogEntries();
         
         return panel;
     }
@@ -906,7 +1161,7 @@ public class PricingSubsystemGUI extends JFrame {
             log("Loading price list from database...");
             priceTableModel.setRowCount(0);
             
-            List<PriceList> prices = pricingFacade.listPrices();
+            List<PriceList> prices = getActivePrices();
             for (PriceList price : prices) {
                 Object[] row = {
                     price.getPriceId(),
@@ -922,7 +1177,10 @@ public class PricingSubsystemGUI extends JFrame {
                 priceTableModel.addRow(row);
             }
             
-            log("Loaded " + prices.size() + " price records");
+            log("Loaded " + prices.size() + " active price records");
+            if (prices.isEmpty()) {
+                log("No active prices found. Add a price in the Price List tab before using price calculations.");
+            }
         } catch (Exception e) {
             log("ERROR loading price list: " + e.getMessage());
             LOGGER.log(Level.SEVERE, "Failed to load price list", e);
@@ -934,7 +1192,7 @@ public class PricingSubsystemGUI extends JFrame {
             log("Loading tier definitions from database...");
             tierTableModel.setRowCount(0);
             
-            List<PricingModels.TierDefinition> tiers = pricingFacade.listTierDefinitions();
+            List<PricingModels.TierDefinition> tiers = pricingAdapter.listAllTierDefinitions();
             for (PricingModels.TierDefinition tier : tiers) {
                 Object[] row = {
                     tier.tierId(),
@@ -957,8 +1215,8 @@ public class PricingSubsystemGUI extends JFrame {
             log("Loading promotions from database...");
             promotionsTableModel.setRowCount(0);
 
-            List<PricingModels.Promotion> promotions = pricingFacade.listPromotions();
-            for (PricingModels.Promotion promo : promotions) {
+            List<PackagingModels.PackagingPromotion> promotions = packagingAdapter.listPromotions();
+            for (PackagingModels.PackagingPromotion promo : promotions) {
                 Object[] row = {
                     promo.promoId(),
                     promo.promoName(),
@@ -968,7 +1226,8 @@ public class PricingSubsystemGUI extends JFrame {
                     promo.startDate(),
                     promo.endDate(),
                     promo.minCartValue(),
-                    promo.maxUses()
+                    promo.maxUses(),
+                    promo.currentUseCount()
                 };
                 promotionsTableModel.addRow(row);
             }
@@ -989,15 +1248,15 @@ public class PricingSubsystemGUI extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         
         panel.add(new JLabel("SKU ID:"));
-        JTextField skuField = new JTextField("SKU-NEW-001");
+        JTextField skuField = new JTextField();
         panel.add(skuField);
         
         panel.add(new JLabel("Region:"));
-        JTextField regionField = new JTextField("SOUTH");
+        JTextField regionField = new JTextField(defaultRegionInput());
         panel.add(regionField);
         
         panel.add(new JLabel("Channel:"));
-        JTextField channelField = new JTextField("RETAIL");
+        JTextField channelField = new JTextField(defaultChannelInput());
         panel.add(channelField);
         
         panel.add(new JLabel("Price Type:"));
@@ -1016,7 +1275,7 @@ public class PricingSubsystemGUI extends JFrame {
         JTextField currencyField = new JTextField("INR");
         panel.add(currencyField);
         
-        JButton addButton = new JButton("Add Price");
+        JButton addButton = createButton("Add Price", true);
         addButton.addActionListener(e -> {
             try {
                 String priceId = "PRICE-" + System.currentTimeMillis();
@@ -1042,7 +1301,7 @@ public class PricingSubsystemGUI extends JFrame {
                 newPrice.setEffectiveFrom(LocalDateTime.now());
                 newPrice.setEffectiveTo(LocalDateTime.now().plusMonths(1));
                 
-                pricingFacade.publishPrice(newPrice);
+                pricingAdapter.publishPrice(newPrice);
                 
                 log("Added new price: " + priceId + " for SKU: " + skuId);
                 loadData();
@@ -1067,7 +1326,7 @@ public class PricingSubsystemGUI extends JFrame {
     }
     
     private void showPriceDetails() {
-        int selectedRow = priceListTable.getSelectedRow();
+        int selectedRow = getSelectedModelRow(priceListTable);
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this, "Please select a price record first",
                 "No Selection", JOptionPane.WARNING_MESSAGE);
@@ -1102,7 +1361,7 @@ public class PricingSubsystemGUI extends JFrame {
     }
 
     private void deleteSelectedPrice() {
-        int selectedRow = priceListTable.getSelectedRow();
+        int selectedRow = getSelectedModelRow(priceListTable);
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this, "Please select a price record to delete",
                 "No Selection", JOptionPane.WARNING_MESSAGE);
@@ -1139,7 +1398,7 @@ public class PricingSubsystemGUI extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
         panel.add(new JLabel("Tier Name:"));
-        JTextField nameField = new JTextField("Platinum");
+        JTextField nameField = new JTextField(defaultTierName());
         panel.add(nameField);
 
         panel.add(new JLabel("Min Spend Threshold:"));
@@ -1150,10 +1409,10 @@ public class PricingSubsystemGUI extends JFrame {
         JTextField discountField = new JTextField("20.00");
         panel.add(discountField);
 
-        JButton addButton = new JButton("Create Tier");
+        JButton addButton = createButton("Create Tier", true);
         addButton.addActionListener(e -> {
             try {
-                Integer tierId = (tierTableModel.getRowCount() + 1);
+                Integer tierId = nextTierId();
                 String tierName = nameField.getText();
                 BigDecimal minSpendThreshold = new BigDecimal(thresholdField.getText());
                 BigDecimal defaultDiscountPct = new BigDecimal(discountField.getText());
@@ -1162,7 +1421,7 @@ public class PricingSubsystemGUI extends JFrame {
                     tierId, tierName, minSpendThreshold, defaultDiscountPct
                 );
 
-                pricingFacade.createTierDefinition(tier);
+                pricingAdapter.createTierDefinition(tier);
 
                 log("Created tier: " + tierName + " with ID: " + tierId);
                 loadData();
@@ -1189,19 +1448,21 @@ public class PricingSubsystemGUI extends JFrame {
         try {
             log("Loading approval requests from database...");
             approvalTableModel.setRowCount(0);
-            for (com.pricingos.pricing.approval.ApprovalRequest r : com.pricingos.pricing.approval.ApprovalRequestDao.findAll(null)) {
+            List<ApprovalRequest> requests = ApprovalRequestDao.findAll(null);
+            for (ApprovalRequest request : requests) {
                 approvalTableModel.addRow(new Object[]{ 
-                    r.getApprovalId(), 
-                    r.getOrderId(), 
-                    r.getRequestType().name(),
-                    r.getRequestedBy(), 
-                    r.getRequestedDiscountAmt(), 
-                    r.getJustificationText(),
-                    r.getRoutedToApproverId(),
-                    r.getSubmissionTime(), 
-                    r.getStatus().name() 
+                    request.getApprovalId(), 
+                    request.getOrderId(), 
+                    request.getRequestType().name(),
+                    request.getRequestedBy(), 
+                    request.getRequestedDiscountAmt(), 
+                    request.getJustificationText(),
+                    request.getRoutedToApproverId(),
+                    request.getSubmissionTime(), 
+                    request.getStatus().name() 
                 });
             }
+            log("Loaded " + requests.size() + " approval requests");
         } catch (Exception e) { log("ERROR loading approvals: " + e.getMessage()); }
     }
 
@@ -1209,10 +1470,18 @@ public class PricingSubsystemGUI extends JFrame {
         try {
             log("Loading profitability analytics from database...");
             analyticsTableModel.setRowCount(0);
-            for (com.pricingos.pricing.approval.ProfitabilityAnalyticsObserver.ProfitabilityEntry e : analyticsObserver.getAllRecords()) {
-                analyticsTableModel.addRow(new Object[]{ e.approvalId(), e.requestType().name(), e.finalStatus().name(), e.discountAmount(), e.recordedAt() });
+            List<ProfitabilityAnalyticsObserver.ProfitabilityEntry> entries = analyticsObserver.getAllRecords();
+            for (ProfitabilityAnalyticsObserver.ProfitabilityEntry entry : entries) {
+                analyticsTableModel.addRow(new Object[]{
+                    entry.approvalId(),
+                    entry.requestType().name(),
+                    entry.finalStatus().name(),
+                    entry.discountAmount(),
+                    entry.recordedAt()
+                });
             }
             totalRevenueDeltaLabel.setText("Total Revenue Impact (Approved Discounts): " + analyticsObserver.getApprovedRevenueDelta());
+            log("Loaded " + entries.size() + " profitability analytics entries");
         } catch (Exception e) { log("ERROR loading analytics: " + e.getMessage()); }
     }
 
@@ -1220,23 +1489,17 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Pending Approval Requests - Workflow Management");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Pending Approval Requests - Workflow Management"), BorderLayout.NORTH);
         
-        String[] columns = {"ID", "Order", "Type", "Requested By", "Discount", "Justification", "Assigned To", "Submission Time", "Status"};
-        approvalTableModel = new DefaultTableModel(columns, 0) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
-        };
-        approvalTable = new JTable(approvalTableModel);
-        approvalTable.setRowHeight(24);
+        String[] columns = {"ID", "Reference", "Type", "Requested By", "Discount", "Justification", "Assigned To", "Submission Time", "Status"};
+        approvalTableModel = createReadOnlyTableModel(columns);
+        approvalTable = createReadOnlyTable(approvalTableModel);
         
-        // Double click to view details
         approvalTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent evt) {
                 if (evt.getClickCount() == 2) {
-                    int row = approvalTable.getSelectedRow();
+                    int row = getSelectedModelRow(approvalTable);
                     if (row >= 0) {
                         String id = (String) approvalTableModel.getValueAt(row, 0);
                         showApprovalDetails(id);
@@ -1249,31 +1512,31 @@ public class PricingSubsystemGUI extends JFrame {
         
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         
-        JButton detailsBtn = new JButton("📋 View Details");
+        JButton detailsBtn = createButton("View Details");
         detailsBtn.addActionListener(e -> {
-            int row = approvalTable.getSelectedRow();
+            int row = getSelectedModelRow(approvalTable);
             if (row >= 0) {
                 String id = (String) approvalTableModel.getValueAt(row, 0);
                 showApprovalDetails(id);
             } else { JOptionPane.showMessageDialog(panel, "Select a request first", "No Selection", JOptionPane.WARNING_MESSAGE); }
         });
         
-        JButton approveBtn = new JButton("✓ Approve Request");
+        JButton approveBtn = createButton("Approve Request", true);
         approveBtn.addActionListener(e -> {
-            int row = approvalTable.getSelectedRow();
+            int row = getSelectedModelRow(approvalTable);
             if (row >= 0) {
                 String id = (String) approvalTableModel.getValueAt(row, 0);
                 try {
-                	approvalEngine.approve(id, "MANAGER_123");
+                	approvalEngine.approve(id, DEFAULT_APPROVER_ID);
                 	loadData();
                 	JOptionPane.showMessageDialog(panel, "Request Approved Successfully!");
                 } catch(Exception ex) { JOptionPane.showMessageDialog(panel, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
             } else { JOptionPane.showMessageDialog(panel, "Select a request first", "No Selection", JOptionPane.WARNING_MESSAGE); }
         });
         
-        JButton rejectBtn = new JButton("✗ Reject Request");
+        JButton rejectBtn = createButton("Reject Request", true);
         rejectBtn.addActionListener(e -> {
-            int row = approvalTable.getSelectedRow();
+            int row = getSelectedModelRow(approvalTable);
             if (row >= 0) {
                 String id = (String) approvalTableModel.getValueAt(row, 0);
                 JDialog rejectDialog = new JDialog(this, "Reject Approval Request", true);
@@ -1287,14 +1550,16 @@ public class PricingSubsystemGUI extends JFrame {
                 JTextArea reasonArea = new JTextArea(6, 40);
                 reasonArea.setLineWrap(true);
                 reasonArea.setWrapStyleWord(true);
-                reasonArea.setText("Manual review rejection");
+                reasonArea.setText(DEFAULT_REJECTION_REASON);
                 
-                JButton submitBtn = new JButton("Reject with Reason");
+                JButton submitBtn = createButton("Reject with Reason", true);
                 submitBtn.addActionListener(ae -> {
                     try {
                         String reason = reasonArea.getText().trim();
-                        if (reason.isEmpty()) reason = "Manual review rejection";
-                        approvalEngine.reject(id, "MANAGER_123", reason);
+                        if (reason.isEmpty()) {
+                            reason = DEFAULT_REJECTION_REASON;
+                        }
+                        approvalEngine.reject(id, DEFAULT_APPROVER_ID, reason);
                         loadData();
                         rejectDialog.dispose();
                         JOptionPane.showMessageDialog(panel, "Request rejected!\nReason: " + reason);
@@ -1313,19 +1578,15 @@ public class PricingSubsystemGUI extends JFrame {
             } else { JOptionPane.showMessageDialog(panel, "Select a request first", "No Selection", JOptionPane.WARNING_MESSAGE); }
         });
         
-        JButton escalateBtn = new JButton("⬆ Escalate Request");
+        JButton escalateBtn = createButton("Escalate Stale Requests");
         escalateBtn.addActionListener(e -> {
-            int row = approvalTable.getSelectedRow();
-            if (row >= 0) {
-                String id = (String) approvalTableModel.getValueAt(row, 0);
-                try {
-                    approvalEngine.escalateStaleRequests();
-                    loadData();
-                    JOptionPane.showMessageDialog(panel, "Request escalated to higher authority!");
-                } catch(Exception ex) { 
-                    JOptionPane.showMessageDialog(panel, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); 
-                }
-            } else { JOptionPane.showMessageDialog(panel, "Select a request first", "No Selection", JOptionPane.WARNING_MESSAGE); }
+            try {
+                approvalEngine.escalateStaleRequests();
+                loadData();
+                JOptionPane.showMessageDialog(panel, "All stale requests were evaluated for escalation.");
+            } catch(Exception ex) { 
+                JOptionPane.showMessageDialog(panel, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); 
+            }
         });
         
         buttonPanel.add(detailsBtn);
@@ -1345,12 +1606,13 @@ public class PricingSubsystemGUI extends JFrame {
             JPanel content = new JPanel(new BorderLayout(10, 10));
             content.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
             
-            com.pricingos.pricing.approval.ApprovalRequest request = approvalEngine.getRequestById(approvalId);
+            ApprovalRequest request = approvalEngine.getRequestById(approvalId);
             
             StringBuilder details = new StringBuilder();
-            details.append("═══ APPROVAL REQUEST DETAILS ═══\n\n");
+            details.append("APPROVAL REQUEST DETAILS\n");
+            details.append("========================\n\n");
             details.append("Request ID: ").append(request.getApprovalId()).append("\n");
-            details.append("Order ID: ").append(request.getOrderId()).append("\n");
+            details.append("Reference ID: ").append(request.getOrderId()).append("\n");
             details.append("Request Type: ").append(request.getRequestType().name()).append("\n");
             details.append("Status: ").append(request.getStatus().name()).append("\n\n");
             
@@ -1360,7 +1622,8 @@ public class PricingSubsystemGUI extends JFrame {
             
             details.append("Requested Discount Amount: $").append(String.format("%.2f", request.getRequestedDiscountAmt())).append("\n\n");
             
-            details.append("───── JUSTIFICATION ─────\n");
+            details.append("JUSTIFICATION\n");
+            details.append("-------------\n");
             details.append(request.getJustificationText()).append("\n\n");
             
             if (request.getApprovalTimestamp() != null) {
@@ -1376,9 +1639,9 @@ public class PricingSubsystemGUI extends JFrame {
                 details.append("Escalation Time: ").append(request.getEscalationTime()).append("\n");
             }
             
-            details.append("\n═══════════════════════════════════\n");
+            details.append("\n-----------------------------------\n");
             details.append("Audit Log:\n");
-            for (com.pricingos.pricing.approval.AuditLogObserver.AuditEntry audit : com.pricingos.pricing.db.DaoBulk.AuditLogDao.findAll()) {
+            for (AuditLogObserver.AuditEntry audit : DaoBulk.AuditLogDao.findAll()) {
                 if (audit.approvalId().equals(approvalId)) {
                     details.append("  [").append(audit.timestamp()).append("] ");
                     details.append(audit.eventType()).append(" by ").append(audit.actor()).append(": ");
@@ -1391,7 +1654,7 @@ public class PricingSubsystemGUI extends JFrame {
             textArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
             textArea.setBackground(new Color(240, 245, 250));
             
-            JButton closeBtn = new JButton("Close");
+            JButton closeBtn = createButton("Close");
             closeBtn.addActionListener(e -> detailsDialog.dispose());
             
             content.add(new JScrollPane(textArea), BorderLayout.CENTER);
@@ -1410,19 +1673,15 @@ public class PricingSubsystemGUI extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
         JPanel header = new JPanel(new BorderLayout());
-        JLabel titleLabel = new JLabel("Profitability Analytics (Decisions Ledger)");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        header.add(titleLabel, BorderLayout.NORTH);
+        header.add(createSectionTitleLabel("Profitability Analytics (Decisions Ledger)"), BorderLayout.NORTH);
         totalRevenueDeltaLabel = new JLabel("Total Revenue Impact: 0.0");
         totalRevenueDeltaLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         header.add(totalRevenueDeltaLabel, BorderLayout.SOUTH);
         panel.add(header, BorderLayout.NORTH);
         
         String[] columns = {"Approval ID", "Request Type", "Final Status", "Discount Amount", "Recorded At"};
-        analyticsTableModel = new DefaultTableModel(columns, 0) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
-        };
-        analyticsTable = new JTable(analyticsTableModel);
+        analyticsTableModel = createReadOnlyTableModel(columns);
+        analyticsTable = createReadOnlyTable(analyticsTableModel);
         panel.add(new JScrollPane(analyticsTable), BorderLayout.CENTER);
         
         return panel;
@@ -1435,31 +1694,26 @@ public class PricingSubsystemGUI extends JFrame {
             String customerId = customerField.getText();
             int quantity = Integer.parseInt(quantityField.getText());
             String promoCode = promoField.getText();
+            if (skuId == null || skuId.isBlank()) {
+                throw new IllegalArgumentException("Enter a SKU with an active price record.");
+            }
+            if (quantity <= 0) {
+                throw new IllegalArgumentException("Quantity must be greater than zero.");
+            }
             
             StringBuilder breakdown = new StringBuilder();
             breakdown.append("=== PRICING CALCULATION ===\n\n");
             
-            // Step 1: Fetch base price from database
-            List<PriceList> prices = pricingFacade.listPrices();
-            BigDecimal basePrice = null;
-            for (PriceList price : prices) {
-                if (price.getSkuId().equals(skuId) && "ACTIVE".equals(price.getStatus())) {
-                    basePrice = price.getBasePrice();
-                    breakdown.append("Base Price: ").append(basePrice).append(" ").append(price.getCurrencyCode()).append("\n");
-                    break;
-                }
-            }
-            
-            if (basePrice == null) {
-                basePrice = new BigDecimal("100.00"); // fallback
-                breakdown.append("Base Price: ").append(basePrice).append(" (default)\n");
-            }
+            PriceList activePrice = findActivePriceForSku(skuId.trim());
+            skuId = activePrice.getSkuId();
+            BigDecimal basePrice = activePrice.getBasePrice();
+            breakdown.append("Base Price: ").append(basePrice).append(" ").append(activePrice.getCurrencyCode()).append("\n");
             
             BigDecimal subtotal = basePrice.multiply(BigDecimal.valueOf(quantity));
             breakdown.append("Subtotal (").append(quantity).append(" units): ").append(subtotal).append("\n\n");
             
             // Step 2: Apply Tier Discount
-            List<PricingModels.TierDefinition> tiers = pricingFacade.listTierDefinitions();
+            List<PricingModels.TierDefinition> tiers = pricingAdapter.listAllTierDefinitions();
             BigDecimal tierDiscount = BigDecimal.ZERO;
             String tierName = "Standard";
             
@@ -1483,7 +1737,7 @@ public class PricingSubsystemGUI extends JFrame {
                 double discountAmount = promotionManager.validateAndGetDiscount(promoCode, skuId, afterTier.doubleValue());
                 promoDiscount = BigDecimal.valueOf(discountAmount);
                 breakdown.append("Promo Applied via PromotionManager: ").append(promoCode).append("\n");
-            } catch (com.pricingos.pricing.promotion.InvalidPromoCodeException ex) {
+            } catch (InvalidPromoCodeException ex) {
                 breakdown.append("Promo Code Invalid: ").append(ex.getReason()).append("\n");
                 promoDiscount = BigDecimal.ZERO;
             }
@@ -1495,7 +1749,7 @@ public class PricingSubsystemGUI extends JFrame {
             // Step 3B: Check Rebate Eligibility
             breakdown.append("=== REBATE PROGRAM STATUS ===\n");
             
-            java.util.List<PricingModels.RebateProgram> rebatePrograms = java.util.Collections.emptyList();
+            List<PricingModels.RebateProgram> rebatePrograms = Collections.emptyList();
             if (pricingAdapter != null && customerId != null && !customerId.isEmpty()) {
                 rebatePrograms = pricingAdapter.listRebateProgramsByCustomer(customerId.trim());
             }
@@ -1521,7 +1775,7 @@ public class PricingSubsystemGUI extends JFrame {
                         
                         if (accumulatedSpend >= targetSpend) {
                             double rebateDue = accumulatedSpend * (rebatePct / 100.0);
-                            breakdown.append("  Status: ✓ TARGET MET - Rebate Due: $").append(String.format("%.2f", rebateDue)).append("\n\n");
+                            breakdown.append("  Status: TARGET MET - Rebate Due: $").append(String.format("%.2f", rebateDue)).append("\n\n");
                         } else {
                             double stillNeeded = targetSpend - accumulatedSpend;
                             breakdown.append("  Status: Pending (Still need: $").append(String.format("%.2f", stillNeeded)).append(")\n\n");
@@ -1551,28 +1805,25 @@ public class PricingSubsystemGUI extends JFrame {
             // Avoid division by zero
             if (subtotal.compareTo(BigDecimal.ZERO) > 0) {
                 breakdown.append("Total Savings: ").append(totalDiscount.multiply(BigDecimal.valueOf(100))
-                         .divide(subtotal, 2, java.math.RoundingMode.HALF_UP)).append("%\n");
+                         .divide(subtotal, 2, RoundingMode.HALF_UP)).append("%\n");
             }
             
             // Check Margin Floor
-            BigDecimal floorPriceBD = new BigDecimal("100.00");
-            for (PriceList price : prices) {
-                if (price.getSkuId().equals(skuId) && "ACTIVE".equals(price.getStatus())) {
-                    floorPriceBD = price.getPriceFloor();
-                    break;
-                }
-            }
-            if (finalPrice.compareTo(floorPriceBD) < 0) {
-                breakdown.append("⚠️ MARGIN VIOLATION ALERT ⚠️\nFinal Price is below Floor Price of ").append(floorPriceBD).append("\n\n");
+            BigDecimal floorPriceBD = activePrice.getPriceFloor();
+            BigDecimal finalUnitPrice = finalPrice.divide(BigDecimal.valueOf(quantity), 2, RoundingMode.HALF_UP);
+            if (finalUnitPrice.compareTo(floorPriceBD) < 0) {
+                breakdown.append("MARGIN VIOLATION ALERT\n");
+                breakdown.append("Final unit price ").append(finalUnitPrice)
+                    .append(" is below floor price ").append(floorPriceBD).append("\n\n");
                 pricingCalculatorOutput.setText(breakdown.toString());
                 int choice = JOptionPane.showConfirmDialog(this,
-                    "Margin violation! Final price " + finalPrice + " is below floor price " + floorPriceBD + ".\nWould you like to submit this override to manager workflows?",
+                    "Margin violation! Final unit price " + finalUnitPrice + " is below floor price " + floorPriceBD + ".\nWould you like to submit this override to manager workflows?",
                     "Margin Protection Alert", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice == JOptionPane.YES_OPTION) {
                     try {
-                        String reqId = approvalEngine.submitOverrideRequest("SalesAgent-01", 
-                            com.pricingos.common.ApprovalRequestType.MANUAL_DISCOUNT, 
-                            "ORDER-" + System.currentTimeMillis(), 
+                        String reqId = approvalEngine.submitOverrideRequest(DEFAULT_REQUESTED_BY,
+                            ApprovalRequestType.MANUAL_DISCOUNT, 
+                            buildPricingReference(skuId),
                             totalDiscount.doubleValue(), 
                             "Requested competitive matching override for customer " + customerId);
                         JOptionPane.showMessageDialog(this, "Approval request submitted!\nID: " + reqId, "Success", JOptionPane.INFORMATION_MESSAGE);
@@ -1597,8 +1848,14 @@ public class PricingSubsystemGUI extends JFrame {
     }
     
     private void log(String message) {
+        String logEntry = "[" + LocalTime.now() + "] " + message;
         SwingUtilities.invokeLater(() -> {
-            logArea.append("[" + java.time.LocalTime.now() + "] " + message + "\n");
+            if (logArea == null) {
+                pendingLogEntries.add(logEntry);
+                return;
+            }
+            flushPendingLogEntries();
+            logArea.append(logEntry + "\n");
             logArea.setCaretPosition(logArea.getDocument().getLength());
         });
     }
@@ -1607,23 +1864,20 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Dynamic Pricing Engine - Market-Based Price Adjustment");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Dynamic Pricing Engine - Market-Based Price Adjustment"), BorderLayout.NORTH);
         
         JPanel inputPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         inputPanel.setBorder(BorderFactory.createTitledBorder("Dynamic Price Calculation"));
         
         inputPanel.add(new JLabel("SKU ID:"));
-        JTextField skuField = new JTextField("SKU-APPLE-001");
+        JTextField skuField = new JTextField(defaultSkuInput());
         inputPanel.add(skuField);
         
         inputPanel.add(new JLabel("Base Price ($):"));
         JTextField basePriceField = new JTextField("100.00");
         inputPanel.add(basePriceField);
         
-        JButton calculateBtn = new JButton("Calculate Dynamic Price");
-        calculateBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton calculateBtn = createButton("Calculate Dynamic Price", true);
         calculateBtn.addActionListener(e -> {
             try {
                 String skuId = skuField.getText();
@@ -1631,7 +1885,8 @@ public class PricingSubsystemGUI extends JFrame {
                 
                 double adjustedPrice = dynamicPricingEngine.adjustBasePrice(skuId, basePrice);
                 String result = String.format(
-                    "═══ DYNAMIC PRICING RESULT ═══\n\n" +
+                    "DYNAMIC PRICING RESULT\n" +
+                    "======================\n\n" +
                     "SKU ID: %s\n" +
                     "Base Price: $%.2f\n" +
                     "Market Index: %.4f\n" +
@@ -1653,14 +1908,14 @@ public class PricingSubsystemGUI extends JFrame {
             }
         });
         
-        JButton tickBtn = new JButton("Simulate Market Change");
-        tickBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton tickBtn = createButton("Simulate Market Change", true);
         tickBtn.addActionListener(e -> {
             double newIndex = marketSimulator.tick();
             String result = String.format(
-                "═══ MARKET SIMULATION ═══\n\n" +
+                "MARKET SIMULATION\n" +
+                "=================\n\n" +
                 "New Market Index: %.4f\n" +
-                "Volatility: ±2%% drift\n\n" +
+                "Volatility: +/-2%% drift\n\n" +
                 "Market conditions have changed!\n" +
                 "Recalculate pricing with new index.",
                 newIndex
@@ -1681,15 +1936,15 @@ public class PricingSubsystemGUI extends JFrame {
             "DYNAMIC PRICING ENGINE\n\n" +
             "This engine adjusts base prices based on real-time market conditions.\n\n" +
             "Features:\n" +
-            "• Market index tracking\n" +
-            "• Automated price adjustment\n" +
-            "• Competitive positioning\n" +
-            "• Real-time sensitivity\n\n" +
+            "- Market index tracking\n" +
+            "- Automated price adjustment\n" +
+            "- Competitive positioning\n" +
+            "- Real-time sensitivity\n\n" +
             "Use Cases:\n" +
-            "• Inventory management\n" +
-            "• Demand-driven pricing\n" +
-            "• Competitive response\n" +
-            "• Revenue optimization"
+            "- Inventory management\n" +
+            "- Demand-driven pricing\n" +
+            "- Competitive response\n" +
+            "- Revenue optimization"
         );
         infoArea.setEditable(false);
         infoArea.setLineWrap(true);
@@ -1707,9 +1962,7 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Multi-Currency Exchange Simulator");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Multi-Currency Exchange Simulator"), BorderLayout.NORTH);
         
         JPanel inputPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         inputPanel.setBorder(BorderFactory.createTitledBorder("Currency Conversion"));
@@ -1728,8 +1981,7 @@ public class PricingSubsystemGUI extends JFrame {
         toCurrencyCombo.setSelectedItem("USD");
         inputPanel.add(toCurrencyCombo);
         
-        JButton convertBtn = new JButton("Convert Currency");
-        convertBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton convertBtn = createButton("Convert Currency", true);
         convertBtn.addActionListener(e -> {
             try {
                 double amount = Double.parseDouble(amountField.getText());
@@ -1740,7 +1992,8 @@ public class PricingSubsystemGUI extends JFrame {
                 double rate = currencySimulator.getRate(from, to);
                 
                 String result = String.format(
-                    "═══ CURRENCY CONVERSION ═══\n\n" +
+                    "CURRENCY CONVERSION\n" +
+                    "===================\n\n" +
                     "Amount: %.2f %s\n" +
                     "Exchange Rate: 1 %s = %.4f %s\n" +
                     "Converted: %.2f %s\n\n" +
@@ -1757,16 +2010,16 @@ public class PricingSubsystemGUI extends JFrame {
             }
         });
         
-        JButton nudgeBtn = new JButton("Simulate Market Fluctuation");
-        nudgeBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton nudgeBtn = createButton("Simulate Market Fluctuation", true);
         nudgeBtn.addActionListener(e -> {
             currencySimulator.nudgeRates();
-            log("Market rates fluctuated (±0.5%)");
+            log("Market rates fluctuated (+/-0.5%)");
             String updatedRates = String.format(
-                "═══ UPDATED EXCHANGE RATES (to INR) ═══\n\n" +
-                "USD = %.2f (fluctuated ±0.5%%)\n" +
-                "EUR = %.2f (fluctuated ±0.5%%)\n" +
-                "GBP = %.2f (fluctuated ±0.5%%)\n\n" +
+                "UPDATED EXCHANGE RATES (to INR)\n" +
+                "===============================\n\n" +
+                "USD = %.2f (fluctuated +/-0.5%%)\n" +
+                "EUR = %.2f (fluctuated +/-0.5%%)\n" +
+                "GBP = %.2f (fluctuated +/-0.5%%)\n\n" +
                 "Market has moved! Rates are live.\n" +
                 "Re-convert to see new prices.",
                 currencySimulator.getRate("USD", "INR"),
@@ -1775,16 +2028,17 @@ public class PricingSubsystemGUI extends JFrame {
             );
             JOptionPane.showMessageDialog(this, updatedRates, "Market Update", JOptionPane.INFORMATION_MESSAGE);
             rateArea.setText(
-                "═══ CURRENT EXCHANGE RATES (to INR) ═══\n\n" +
+                "CURRENT EXCHANGE RATES (to INR)\n" +
+                "===============================\n\n" +
                 "INR = 1.00\n" +
-                String.format("USD = %.2f (fluctuated ±0.5%%)\n", currencySimulator.getRate("USD", "INR")) +
-                String.format("EUR = %.2f (fluctuated ±0.5%%)\n", currencySimulator.getRate("EUR", "INR")) +
-                String.format("GBP = %.2f (fluctuated ±0.5%%)\n\n", currencySimulator.getRate("GBP", "INR")) +
+                String.format("USD = %.2f (fluctuated +/-0.5%%)\n", currencySimulator.getRate("USD", "INR")) +
+                String.format("EUR = %.2f (fluctuated +/-0.5%%)\n", currencySimulator.getRate("EUR", "INR")) +
+                String.format("GBP = %.2f (fluctuated +/-0.5%%)\n\n", currencySimulator.getRate("GBP", "INR")) +
                 "Multi-Currency Management:\n" +
-                "• Support 4 major currencies\n" +
-                "• Real-time rate simulation\n" +
-                "• Market volatility modeling\n" +
-                "• Automatic conversion\n\n" +
+                "- Support 4 major currencies\n" +
+                "- Real-time rate simulation\n" +
+                "- Market volatility modeling\n" +
+                "- Automatic conversion\n\n" +
                 "Global Strategy:\n" +
                 "Price in local currencies for each region"
             );
@@ -1799,16 +2053,17 @@ public class PricingSubsystemGUI extends JFrame {
         topPanel.add(btnPanel, BorderLayout.SOUTH);
         
         rateArea = new JTextArea(
-            "═══ CURRENT EXCHANGE RATES (to INR) ═══\n\n" +
+            "CURRENT EXCHANGE RATES (to INR)\n" +
+            "===============================\n\n" +
             "INR = 1.00\n" +
-            "USD = 83.00 (fluctuates ±0.5%)\n" +
-            "EUR = 90.00 (fluctuates ±0.5%)\n" +
-            "GBP = 105.00 (fluctuates ±0.5%)\n\n" +
+            "USD = 83.00 (fluctuates +/-0.5%)\n" +
+            "EUR = 90.00 (fluctuates +/-0.5%)\n" +
+            "GBP = 105.00 (fluctuates +/-0.5%)\n\n" +
             "Multi-Currency Management:\n" +
-            "• Support 4 major currencies\n" +
-            "• Real-time rate simulation\n" +
-            "• Market volatility modeling\n" +
-            "• Automatic conversion\n\n" +
+            "- Support 4 major currencies\n" +
+            "- Real-time rate simulation\n" +
+            "- Market volatility modeling\n" +
+            "- Automatic conversion\n\n" +
             "Global Strategy:\n" +
             "Price in local currencies for each region"
         );
@@ -1828,15 +2083,13 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
-        JLabel titleLabel = new JLabel("Regional Pricing & Landed Cost Management");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(createSectionTitleLabel("Regional Pricing & Landed Cost Management"), BorderLayout.NORTH);
         
         JPanel inputPanel = new JPanel(new GridLayout(0, 2, 10, 10));
         inputPanel.setBorder(BorderFactory.createTitledBorder("Regional Price Adjustment"));
         
         inputPanel.add(new JLabel("SKU ID:"));
-        JTextField skuField = new JTextField("SKU-APPLE-001");
+        JTextField skuField = new JTextField(defaultSkuInput());
         inputPanel.add(skuField);
         
         inputPanel.add(new JLabel("Base Price ($):"));
@@ -1847,8 +2100,7 @@ public class PricingSubsystemGUI extends JFrame {
         JComboBox<String> regionCombo = new JComboBox<>(new String[]{"GLOBAL", "SOUTH", "NORTH", "EU", "US"});
         inputPanel.add(regionCombo);
         
-        JButton calculateBtn = new JButton("Calculate Regional Price");
-        calculateBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton calculateBtn = createButton("Calculate Regional Price", true);
         calculateBtn.addActionListener(e -> {
             try {
                 String skuId = skuField.getText();
@@ -1859,7 +2111,8 @@ public class PricingSubsystemGUI extends JFrame {
                 double regionalPrice = regionalPricingService.applyRegionalPricingAdjustment(skuId, basePrice, region);
                 
                 String result = String.format(
-                    "═══ REGIONAL PRICING ═══\n\n" +
+                    "REGIONAL PRICING\n" +
+                    "================\n\n" +
                     "SKU ID: %s\n" +
                     "Region: %s\n" +
                     "Base Price: $%.2f\n" +
@@ -1867,10 +2120,10 @@ public class PricingSubsystemGUI extends JFrame {
                     "Regional Price: $%.2f\n" +
                     "Price Adjustment: %.2f%%\n\n" +
                     "Regional Factors:\n" +
-                    "• Shipping costs\n" +
-                    "• Local taxes\n" +
-                    "• Customs duties\n" +
-                    "• Regional demand",
+                    "- Shipping costs\n" +
+                    "- Local taxes\n" +
+                    "- Customs duties\n" +
+                    "- Regional demand",
                     skuId, region, basePrice, landedCost, regionalPrice,
                     ((regionalPrice - basePrice) / basePrice) * 100
                 );
@@ -1891,23 +2144,24 @@ public class PricingSubsystemGUI extends JFrame {
         topPanel.add(btnPanel, BorderLayout.SOUTH);
         
         JTextArea regionInfoArea = new JTextArea(
-            "═════ REGIONAL MULTIPLIERS & LANDED COST ═════\n\n" +
+            "REGIONAL MULTIPLIERS AND LANDED COST\n" +
+            "====================================\n\n" +
             "GLOBAL:  1.00 (Base)\n" +
             "SOUTH:   1.02 (India region, minimal markup)\n" +
             "NORTH:   1.03 (Northern region premium)\n" +
             "EU:      1.10 (European import duties & taxes)\n" +
             "US:      1.08 (US distribution markup)\n\n" +
             "Landed Cost Components:\n" +
-            "• FOB Price (base)\n" +
-            "• International Freight\n" +
-            "• Insurance\n" +
-            "• Customs & Duties\n" +
-            "• Local Distribution\n\n" +
+            "- FOB Price (base)\n" +
+            "- International Freight\n" +
+            "- Insurance\n" +
+            "- Customs & Duties\n" +
+            "- Local Distribution\n\n" +
             "Strategic Pricing:\n" +
-            "• Account for regional costs\n" +
-            "• Maintain profit margins\n" +
-            "• Stay competitive locally\n" +
-            "• Optimize supply chain"
+            "- Account for regional costs\n" +
+            "- Maintain profit margins\n" +
+            "- Stay competitive locally\n" +
+            "- Optimize supply chain"
         );
         regionInfoArea.setEditable(false);
         regionInfoArea.setLineWrap(true);

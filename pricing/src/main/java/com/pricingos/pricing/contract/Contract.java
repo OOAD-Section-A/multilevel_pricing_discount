@@ -84,6 +84,10 @@ public class Contract {
         return skuPrices.get(ValidationUtils.requireNonBlank(skuId, "skuId"));
     }
 
+    Map<String, Double> getSkuPricesSnapshot() {
+        return skuPrices;
+    }
+
     public boolean isActiveOn(LocalDate date) {
         Objects.requireNonNull(date, "date cannot be null");
         synchronized (this) {
@@ -133,6 +137,12 @@ public class Contract {
                 throw new IllegalStateException("Invalid status transition from " + status + " to " + nextStatus);
             }
             status = nextStatus;
+        }
+    }
+
+    void restoreState(ContractStatus status) {
+        synchronized (this) {
+            this.status = Objects.requireNonNull(status, "status cannot be null");
         }
     }
 

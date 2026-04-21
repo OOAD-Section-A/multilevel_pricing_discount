@@ -1,19 +1,25 @@
 #!/bin/bash
-# Script to run the Pricing Subsystem GUI via Maven
+set -euo pipefail
 
 echo "Starting Pricing Subsystem GUI..."
 echo "Connecting to MySQL database OOAD..."
 
-# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DB_URL="${DB_URL:-jdbc:mysql://localhost:3306/OOAD}"
+DB_USERNAME="${DB_USERNAME:-root}"
+DB_PASSWORD="${DB_PASSWORD:-}"
+PRICING_SEED_DEMO_DATA="${PRICING_SEED_DEMO_DATA:-false}"
 
-cd "$SCRIPT_DIR/pricing"
+cd "$SCRIPT_DIR"
 
-echo "Resolving dependencies..."
-mvn dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile=cp.txt
+echo "Building project..."
+mvn -q -DskipTests package
 
-# Extract maven classpath
-MAVEN_CP=$(cat cp.txt)
-
-echo "Launching via Java..."
-java -Ddb.url=jdbc:mysql://localhost:3306/OOAD -Ddb.username=root -Ddb.password= -cp "target/classes:../lib/*:../common/target/classes:../resources:$MAVEN_CP" com.pricingos.pricing.gui.PricingSubsystemGUI
+echo "Launching pricing GUI..."
+java \
+  -Ddb.url="$DB_URL" \
+  -Ddb.username="$DB_USERNAME" \
+  -Ddb.password="$DB_PASSWORD" \
+  -Dpricing.seed.demo="$PRICING_SEED_DEMO_DATA" \
+  -cp "common/target/classes:pricing/target/classes:lib/*" \
+  com.pricingos.pricing.gui.PricingSubsystemGUI

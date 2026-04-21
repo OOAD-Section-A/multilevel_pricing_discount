@@ -13,7 +13,7 @@ import java.util.Objects;
  * Produces a {@link ReceiptSummary} by delegating per-line pricing to the
  * existing {@link IInvoiceService} and aggregating the totals.
  *
- * <p>This service performs NO database writes — it is a pure calculation
+ * <p>This service performs NO database writes - it is a pure calculation
  * layer designed for cross-team transfer to the Receipts subsystem.</p>
  */
 public class ReceiptPricingService implements IReceiptPricingService {

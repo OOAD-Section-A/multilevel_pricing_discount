@@ -28,7 +28,7 @@ public final class DiscountPolicy {
     }
 
     public static final class Builder {
-        private final String policyId = "POLICY-" + UUID.randomUUID();
+        private String policyId = "POLICY-" + UUID.randomUUID();
         private final String policyName;
         private int priorityLevel = 0;
         private String stackingRule = "ADDITIVE";
@@ -53,6 +53,11 @@ public final class DiscountPolicy {
 
         public Builder createdAt(LocalDateTime timestamp) {
             this.createdAt = Objects.requireNonNull(timestamp, "createdAt cannot be null");
+            return this;
+        }
+
+        public Builder policyId(String policyId) {
+            this.policyId = ValidationUtils.requireNonBlank(policyId, "policyId");
             return this;
         }
 

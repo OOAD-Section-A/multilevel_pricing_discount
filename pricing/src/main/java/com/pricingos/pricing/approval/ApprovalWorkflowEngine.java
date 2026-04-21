@@ -6,13 +6,14 @@ import com.pricingos.common.IApprovalWorkflowService;
 import com.pricingos.common.IApproverRoleService;
 import com.pricingos.common.IFloorPriceService;
 import com.pricingos.common.ValidationUtils;
-import com.scm.subsystems.MultiLevelPricingSubsystem;
+import com.pricingos.pricing.exception.PricingExceptionReporter;
 
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -25,21 +26,7 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
     private final IApproverRoleService approverRoleService;
     private final Clock clock;
     private final List<ApprovalEventObserver> observers = new CopyOnWriteArrayList<>();
-    private final AtomicInteger idCounter = new AtomicInteger((int)(Math.random() * 1000000));
-    private MultiLevelPricingSubsystem exceptions;
-    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-    
-    private MultiLevelPricingSubsystem getExceptions() {
-        if (exceptions == null && IS_WINDOWS) {
-            try {
-                exceptions = MultiLevelPricingSubsystem.INSTANCE;
-            } catch (Exception e) {
-                // Windows Event Viewer initialization failed
-                exceptions = null;
-            }
-        }
-        return exceptions;
-    }
+    private final AtomicInteger idCounter = new AtomicInteger(ThreadLocalRandom.current().nextInt(1_000_000));
 
     public ApprovalWorkflowEngine(ApprovalRoutingStrategy routingStrategy,
                                   IApproverRoleService approverRoleService) {
@@ -152,6 +139,9 @@ public class ApprovalWorkflowEngine implements IApprovalWorkflowService {
             if (request.getStatus() != ApprovalStatus.PENDING) {
                 continue;
             }
+            PricingExceptionReporter.approvalEscalationTimeout(
+                    request.getApprovalId(),
+                    request.getPendingHours());
             try {
                 request.markAsEscalated();
             } catch (IllegalStateException ignored) {

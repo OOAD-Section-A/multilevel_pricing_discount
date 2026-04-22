@@ -39,7 +39,7 @@ public class RebateProgramManager implements IRebateService {
                 normalizedSkuId,
                 BigDecimal.valueOf(targetSpend),
                 BigDecimal.ZERO,
-                BigDecimal.valueOf(rebatePct / 100.0)
+                RebateProgramMath.toStoredRate(rebatePct)
         );
         rebateStore.save(program);
         return program.programId();
@@ -63,16 +63,12 @@ public class RebateProgramManager implements IRebateService {
     @Override
     public double getRebateDue(String programId) {
         RebateProgram program = requireProgram(programId);
-        if (program.accumulatedSpend().compareTo(program.targetSpend()) < 0) {
-            return 0.0;
-        }
-        return program.accumulatedSpend().multiply(program.rebatePct()).doubleValue();
+        return RebateProgramMath.calculateDue(program);
     }
 
     @Override
     public boolean isTargetMet(String programId) {
-        RebateProgram program = requireProgram(programId);
-        return program.accumulatedSpend().compareTo(program.targetSpend()) >= 0;
+        return RebateProgramMath.isTargetMet(requireProgram(programId));
     }
 
     @Override

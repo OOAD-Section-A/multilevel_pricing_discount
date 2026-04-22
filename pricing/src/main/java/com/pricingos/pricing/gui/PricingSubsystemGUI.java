@@ -23,6 +23,7 @@ import com.pricingos.pricing.exception.PricingExceptionReporter;
 import com.pricingos.pricing.pricelist.PriceListManager;
 import com.pricingos.pricing.promotion.InvalidPromoCodeException;
 import com.pricingos.pricing.promotion.PromotionManager;
+import com.pricingos.pricing.promotion.RebateProgramMath;
 import com.pricingos.pricing.promotion.RebateProgramManager;
 import com.pricingos.pricing.simulation.CurrencySimulator;
 import com.pricingos.pricing.simulation.DynamicPricingEngine;
@@ -92,6 +93,8 @@ public class PricingSubsystemGUI extends JFrame {
     private JLabel totalRevenueDeltaLabel;
     private JTextArea rebateDetailArea;
     private JTextField rebateFilterCustomerField;
+    private JTextField rebateProgramIdField;
+    private JComboBox<RebateProgramOption> rebateProgramSelector;
     private JTextArea rateArea;
     
     public PricingSubsystemGUI() {
@@ -856,6 +859,8 @@ public class PricingSubsystemGUI extends JFrame {
                 double rebatePercent = Double.parseDouble(rebatePercentField.getText());
 
                 String programId = rebateProgramManager.createRebateProgram(customerId, skuId, targetSpend, rebatePercent);
+                rebateFilterCustomerField.setText(customerId);
+                rebateProgramIdField.setText(programId);
                 log("Created rebate program: " + programId + " for customer " + customerId);
                 JOptionPane.showMessageDialog(this, "Rebate program created successfully!\nID: " + programId,
                     "Success", JOptionPane.INFORMATION_MESSAGE);
@@ -883,9 +888,15 @@ public class PricingSubsystemGUI extends JFrame {
         JPanel purchasePanel = new JPanel(new GridLayout(0, 2, 10, 10));
         purchasePanel.setBorder(BorderFactory.createTitledBorder("Record Purchase"));
 
+        purchasePanel.add(new JLabel("Select Program:"));
+        rebateProgramSelector = new JComboBox<>();
+        rebateProgramSelector.addItem(RebateProgramOption.placeholder());
+        rebateProgramSelector.addActionListener(e -> applySelectedRebateProgram());
+        purchasePanel.add(rebateProgramSelector);
+
         purchasePanel.add(new JLabel("Program ID:"));
-        JTextField programIdField = new JTextField();
-        purchasePanel.add(programIdField);
+        rebateProgramIdField = new JTextField();
+        purchasePanel.add(rebateProgramIdField);
 
         purchasePanel.add(new JLabel("Purchase Amount ($):"));
         JTextField purchaseAmountField = new JTextField("1200.00");
@@ -894,11 +905,20 @@ public class PricingSubsystemGUI extends JFrame {
         JButton recordButton = createButton("Record Purchase", true);
         recordButton.addActionListener(e -> {
             try {
-                String programId = programIdField.getText();
+                String programId = resolveRebateProgramId();
                 double purchaseAmount = Double.parseDouble(purchaseAmountField.getText());
+                if (purchaseAmount <= 0) {
+                    throw new IllegalArgumentException("purchaseAmount must be greater than zero");
+                }
 
                 rebateProgramManager.recordPurchase(programId, purchaseAmount);
-                log("Recorded purchase of $" + purchaseAmount + " for program " + programId);
+                if (pricingAdapter != null) {
+                    pricingAdapter.getRebateProgram(programId).ifPresent(program -> {
+                        rebateFilterCustomerField.setText(program.customerId());
+                        rebateProgramIdField.setText(program.programId());
+                    });
+                }
+                log("Recorded purchase of $" + String.format("%.2f", purchaseAmount) + " for program " + programId);
                 JOptionPane.showMessageDialog(this, "Purchase recorded successfully!",
                     "Success", JOptionPane.INFORMATION_MESSAGE);
                 refreshRebatePrograms();
@@ -979,33 +999,34 @@ public class PricingSubsystemGUI extends JFrame {
                     display.append("(The database adapter does not currently support listing ALL rebate programs globally.)\n\n");
                 }
             }
+            updateRebateProgramSelector(programs);
             
             if (programs.isEmpty() && customerFilter.isEmpty()) {
                 // Already handled above
             } else if (programs.isEmpty()) {
                 display.append("No active rebate programs found for this customer.\n");
             } else {
-                display.append(String.format("%-12s %-15s %-15s %-15s %-12s %-12s\n", 
+                display.append(String.format("%-40s %-15s %-18s %-21s %-12s %-10s\n",
                     "Program ID", "Customer", "SKU", "Progress", "Rebate Due", "Status"));
-                display.append("-".repeat(82)).append("\n");
+                display.append("-".repeat(126)).append("\n");
                 
                 for (PricingModels.RebateProgram prog : programs) {
                     String programId = prog.programId();
                     String customerId = prog.customerId();
                     String skuId = prog.skuId();
                     double targetSpend = prog.targetSpend().doubleValue();
-                    double rebatePct = prog.rebatePct().doubleValue();
                     double accumulatedSpend = prog.accumulatedSpend().doubleValue();
                     
-                    double progressPct = (accumulatedSpend / targetSpend) * 100.0;
-                    boolean targetMet = accumulatedSpend >= targetSpend;
-                    double rebateDue = targetMet ? accumulatedSpend * rebatePct : 0.0;
+                    double progressPct = RebateProgramMath.calculateProgressPercent(prog);
+                    boolean targetMet = RebateProgramMath.isTargetMet(prog);
+                    double rebatePct = RebateProgramMath.toDisplayPercent(prog.rebatePct());
+                    double rebateDue = RebateProgramMath.calculateDue(prog);
                     String status = targetMet ? "EARNED" : "PENDING";
                     
-                    String progressStr = String.format("%.0f/%.0f (%.1f%%)", 
+                    String progressStr = String.format("%.0f/%.0f (%.1f%%)",
                         accumulatedSpend, targetSpend, progressPct);
                     
-                    display.append(String.format("%-12s %-15s %-15s %-15s $%-11.2f %s\n",
+                    display.append(String.format("%-40s %-15s %-18s %-21s $%-11.2f %s\n",
                         programId, customerId, skuId, progressStr, rebateDue, status));
                     
                     display.append(String.format("  Target Met: %s | Rebate Rate: %.1f%% | Rebate Due: $%.2f\n\n",
@@ -1013,7 +1034,7 @@ public class PricingSubsystemGUI extends JFrame {
                 }
             }
             
-            display.append("\n").append("-".repeat(82)).append("\n");
+            display.append("\n").append("-".repeat(126)).append("\n");
             
             if (rebateDetailArea != null) {
                 rebateDetailArea.setText(display.toString());
@@ -1761,8 +1782,8 @@ public class PricingSubsystemGUI extends JFrame {
                     String progSkuId = prog.skuId();
                     String programId = prog.programId();
                     double targetSpend = prog.targetSpend().doubleValue();
-                    double rebatePct = prog.rebatePct().doubleValue();
-                    double accumulatedSpend = prog.accumulatedSpend().doubleValue();                    
+                    double rebatePct = RebateProgramMath.toDisplayPercent(prog.rebatePct());
+                    double accumulatedSpend = prog.accumulatedSpend().doubleValue();
                     if (progCustomerId.equals(customerId) && progSkuId.equals(skuId)) {
                         foundRebateProgram = true;
                         breakdown.append("Rebate Program Found: ").append(programId).append("\n");
@@ -1770,11 +1791,11 @@ public class PricingSubsystemGUI extends JFrame {
                         breakdown.append("  Accumulated: $").append(String.format("%.2f", accumulatedSpend)).append("\n");
                         breakdown.append("  Rebate Rate: ").append(String.format("%.1f", rebatePct)).append("%\n");
                         
-                        double progressPct = (accumulatedSpend / targetSpend) * 100.0;
+                        double progressPct = RebateProgramMath.calculateProgressPercent(prog);
                         breakdown.append("  Progress: ").append(String.format("%.1f%%", progressPct)).append("\n");
                         
-                        if (accumulatedSpend >= targetSpend) {
-                            double rebateDue = accumulatedSpend * (rebatePct / 100.0);
+                        if (RebateProgramMath.isTargetMet(prog)) {
+                            double rebateDue = RebateProgramMath.calculateDue(prog);
                             breakdown.append("  Status: TARGET MET - Rebate Due: $").append(String.format("%.2f", rebateDue)).append("\n\n");
                         } else {
                             double stillNeeded = targetSpend - accumulatedSpend;
@@ -2173,6 +2194,85 @@ public class PricingSubsystemGUI extends JFrame {
         panel.add(regionInfoArea, BorderLayout.CENTER);
         
         return panel;
+    }
+
+    private String resolveRebateProgramId() {
+        if (rebateProgramIdField != null) {
+            String typedProgramId = rebateProgramIdField.getText().trim();
+            if (!typedProgramId.isEmpty()) {
+                return typedProgramId;
+            }
+        }
+        if (rebateProgramSelector != null) {
+            Object selected = rebateProgramSelector.getSelectedItem();
+            if (selected instanceof RebateProgramOption option && !option.isPlaceholder()) {
+                return option.programId();
+            }
+        }
+        throw new IllegalArgumentException("Please select or enter a rebate program ID");
+    }
+
+    private void updateRebateProgramSelector(List<PricingModels.RebateProgram> programs) {
+        if (rebateProgramSelector == null) {
+            return;
+        }
+
+        String currentProgramId = rebateProgramIdField == null ? "" : rebateProgramIdField.getText().trim();
+        rebateProgramSelector.removeAllItems();
+        rebateProgramSelector.addItem(RebateProgramOption.placeholder());
+
+        RebateProgramOption matchingOption = null;
+        for (PricingModels.RebateProgram program : programs) {
+            RebateProgramOption option = RebateProgramOption.from(program);
+            rebateProgramSelector.addItem(option);
+            if (option.programId().equals(currentProgramId)) {
+                matchingOption = option;
+            }
+        }
+
+        if (matchingOption != null) {
+            rebateProgramSelector.setSelectedItem(matchingOption);
+        } else if (programs.size() == 1) {
+            rebateProgramSelector.setSelectedIndex(1);
+        } else {
+            rebateProgramSelector.setSelectedIndex(0);
+        }
+    }
+
+    private void applySelectedRebateProgram() {
+        if (rebateProgramSelector == null || rebateProgramIdField == null) {
+            return;
+        }
+        Object selected = rebateProgramSelector.getSelectedItem();
+        if (!(selected instanceof RebateProgramOption option) || option.isPlaceholder()) {
+            return;
+        }
+        rebateProgramIdField.setText(option.programId());
+    }
+
+    private record RebateProgramOption(String programId, String label) {
+        private static RebateProgramOption placeholder() {
+            return new RebateProgramOption("", "-- Select Active Program --");
+        }
+
+        private static RebateProgramOption from(PricingModels.RebateProgram program) {
+            String progress = String.format("$%.2f / $%.2f",
+                    program.accumulatedSpend().doubleValue(),
+                    program.targetSpend().doubleValue());
+            return new RebateProgramOption(
+                    program.programId(),
+                    program.programId() + " | " + program.customerId() + " | "
+                            + program.skuId() + " | " + progress);
+        }
+
+        private boolean isPlaceholder() {
+            return programId.isEmpty();
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
     }
     
     public static void main(String[] args) {
